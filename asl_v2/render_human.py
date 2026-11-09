@@ -90,21 +90,40 @@ def main():
     ap.add_argument("--skin", default="young_caucasian_male")
     ap.add_argument("--clothes", default="male_casualsuit01")
     ap.add_argument("--hair", default="short02")
+    ap.add_argument("--closeup", action="store_true", help="frame chest+hands (inspection)")
+    ap.add_argument("--faceup", action="store_true", help="frame the face (inspection)")
     args = ap.parse_args()
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     t = time.time()
-    rig, _ = mh_avatar.build_character(skin=args.skin, clothes=args.clothes, hair=args.hair)
+    rig, objs = mh_avatar.build_character(skin=args.skin, clothes=args.clothes, hair=args.hair)
     print(f"character built in {time.time() - t:.1f}s", flush=True)
     res = tuple(int(v) for v in args.res.split("x"))
     setup_scene(rig, res, args.samples)
+    if args.closeup:
+        cam = bpy.context.scene.camera
+        chest_z = np.array(rig.data.bones["spine_03"].head_local)[2]
+        cam.data.lens = 85
+        sens_h = cam.data.sensor_width * res[1] / res[0]
+        cam.location = (0, -0.75 * cam.data.lens / sens_h, chest_z + 0.02)
+    if args.faceup:
+        cam = bpy.context.scene.camera
+        head_z = np.array(rig.data.bones["head"].head_local)[2]
+        sens_h = cam.data.sensor_width * res[1] / res[0]
+        cam.location = (0, -0.30 * cam.data.lens / sens_h, head_z + 0.035)
     retarget = mh_avatar.Retargeter(rig)
     seq = np.load(args.motion)
     sc = bpy.context.scene
+    feats = [mh_avatar.face_features(f[mh_avatar.FACE:mh_avatar.FACE + 468, :2]) for f in seq]
+    neutral = mh_avatar.neutral_face(feats)
+
+    def pose(f):
+        retarget.pose(f)
+        retarget.set_expression(f, neutral, objs)
 
     if args.frames:
         for i in map(int, args.frames.split(",")):
-            retarget.pose(seq[i])
+            pose(seq[i])
             bpy.context.view_layer.update()
             sc.render.filepath = f"{os.path.splitext(args.output)[0]}_{i:04d}.png"
             bpy.ops.render.render(write_still=True)
@@ -113,7 +132,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="aslhuman_")
     t = time.time()
     for i, f in enumerate(seq):
-        retarget.pose(f)
+        pose(f)
         bpy.context.view_layer.update()
         sc.render.filepath = os.path.join(tmp, f"{i:05d}.png")
         bpy.ops.render.render(write_still=True)

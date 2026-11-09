@@ -261,7 +261,7 @@ def fit_proxy(mhclo_path, verts_mh):
 # Character
 # --------------------------------------------------------------------------
 def build_character(skin="young_caucasian_male", clothes="male_casualsuit01", hair="short02",
-                    eyebrows="eyebrow001", eyelashes="eyelashes01", eye_color="brown"):
+                    eyebrows="eyebrow001", eyelashes="eyelashes01", eye_color="brownlight"):
     verts, uvs, faces, cubes = read_obj(os.path.join(MPFB_DATA, "3dobjs", "base.obj"), keep_groups=["body"])
     apply_target(verts, "macrodetails/caucasian-male-young.target.gz")
     apply_target(verts, "macrodetails/universal-male-young-averagemuscle-averageweight.target.gz")
@@ -274,7 +274,8 @@ def build_character(skin="young_caucasian_male", clothes="male_casualsuit01", ha
     hidden = set()
     proxies = []
     for kind, name in (("clothes", clothes), ("hair", hair), ("eyebrows", eyebrows),
-                       ("eyelashes", eyelashes), ("eyes", "low-poly")):
+                       ("eyelashes", eyelashes), ("eyes", "low-poly"), ("teeth", "teeth_base"),
+                       ("tongue", "tongue01")):
         if not name:
             continue
         path = os.path.join(ASSETS, kind, name, f"{name}.mhclo")
@@ -294,29 +295,135 @@ def build_character(skin="young_caucasian_male", clothes="male_casualsuit01", ha
     for kind, name, info, pos, puv, pfaces, mat, d in proxies:
         if kind == "eyes":
             tex = os.path.join(ASSETS, "eyes", "materials", f"{eye_color}_eye.png")
-            m = make_material("eyes", tex=tex, rough=0.1, spec=0.8)
+            m = make_material("eyes", tex=tex, rough=0.08, spec=0.8)
+            # darken the amber "brownlight" iris to a natural brown (texture -> multiply)
+            nt = m.node_tree
+            tnode = [n for n in nt.nodes if n.type == "TEX_IMAGE"][0]
+            mix = nt.nodes.new("ShaderNodeMix")
+            mix.data_type = "RGBA"
+            mix.blend_type = "MULTIPLY"
+            mix.inputs["Factor"].default_value = 0.9
+            mix.inputs["B"].default_value = (0.45, 0.30, 0.22, 1)
+            nt.links.new(tnode.outputs["Color"], mix.inputs["A"])
+            nt.links.new(mix.outputs["Result"], nt.nodes["Principled BSDF"].inputs["Base Color"])
         else:
             tex = mat.get("diffuseTexture")
             nrm = mat.get("normalmapTexture")
             m = make_material(kind, tex=os.path.join(d, tex) if tex else None,
                               normal=os.path.join(d, nrm) if nrm else None,
-                              rough=0.85 if kind == "clothes" else 0.6,
+                              rough={"clothes": 0.85, "teeth": 0.25, "tongue": 0.35}.get(kind, 0.6),
                               alpha=kind in ("hair", "eyebrows", "eyelashes"),
                               spec=0.3)
         o = make_mesh(kind, to_blender(pos), pfaces, puv, m)
         skin_to_rig(o, rig, proxy_weights(info, weights))
         objs[kind] = o
 
+    add_expression_keys(body, objs, proxies, len(verts))
     sub = body.modifiers.new("subsurf", "SUBSURF")
     sub.levels, sub.render_levels = 0, 1
     return rig, objs
 
 
 # --------------------------------------------------------------------------
+# Facial expression units (MakeHuman CC0 FACS-style targets) as shape keys
+# --------------------------------------------------------------------------
+EXPR_UNITS = ["mouth-open", "mouth-corner-puller", "mouth-pursing", "mouth-depression",
+              "eyebrows-left-up", "eyebrows-right-up", "eyebrows-left-down", "eyebrows-right-down",
+              "eyebrows-left-inner-up", "eyebrows-right-inner-up",
+              "eye-left-closure", "eye-right-closure", "eye-left-opened-up", "eye-right-opened-up"]
+
+
+def _target_delta(name, n, race="caucasian"):
+    d = np.zeros((n, 3))
+    path = os.path.join(MPFB_DATA, "targets", "expression", "units", race, f"{name}.target.gz")
+    with gzip.open(path, "rt") as fh:
+        for line in fh:
+            if line[:1].isdigit():
+                i, dx, dy, dz = line.split()
+                d[int(i)] = (float(dx), float(dy), float(dz))
+    return to_blender(d)          # linear map, so it converts offsets too
+
+
+def add_expression_keys(body, objs, proxies, n):
+    body.shape_key_add(name="Basis")
+    basis = np.array([v.co for v in body.data.vertices])
+    proxy_info = {kind: info for kind, name, info, *_ in proxies}
+    for kind in ("eyebrows", "eyelashes", "teeth", "tongue"):
+        if kind in objs:
+            objs[kind].shape_key_add(name="Basis")
+    for unit in EXPR_UNITS:
+        delta = _target_delta(unit, n)
+        k = body.shape_key_add(name=unit, from_mix=False)
+        k.data.foreach_set("co", (basis + delta).astype(np.float32).ravel())
+        for kind in ("eyebrows", "eyelashes", "teeth", "tongue"):  # proxies follow the skin via their 3 reference verts
+            if kind not in objs:
+                continue
+            info, o = proxy_info[kind], objs[kind]
+            refs, ws = np.array(info["refs"]), np.array(info["weights"])
+            pd = (ws[:, :, None] * delta[refs]).sum(1)
+            pb = np.array([v.co for v in o.data.vertices])
+            pk = o.shape_key_add(name=unit, from_mix=False)
+            pk.data.foreach_set("co", (pb + pd).astype(np.float32).ravel())
+
+
+FACE_FEATS = dict(lip_top=13, lip_bot=14, mouth_l=291, mouth_r=61, top=10, chin=152,
+                  brow_l=(334, 296, 293, 300), brow_r=(105, 66, 63, 70),
+                  lid_l=(386, 374), lid_r=(159, 145))
+
+
+def face_features(face2d):
+    """Scale-free facial measurements from (468+,2) canonical face landmarks."""
+    F = FACE_FEATS
+    h = np.linalg.norm(face2d[F["top"]] - face2d[F["chin"]]) + 1e-9
+    out = dict(
+        open=np.linalg.norm(face2d[F["lip_top"]] - face2d[F["lip_bot"]]) / h,
+        width=np.linalg.norm(face2d[F["mouth_l"]] - face2d[F["mouth_r"]]) / h,
+    )
+    for s in "lr":
+        brow = face2d[list(F[f"brow_{s}"])].mean(0)
+        lid_top, lid_bot = face2d[F[f"lid_{s}"][0]], face2d[F[f"lid_{s}"][1]]
+        out[f"brow_{s}"] = (lid_top[1] - brow[1]) / h
+        out[f"eye_{s}"] = np.linalg.norm(lid_top - lid_bot) / h
+    return out
+
+
+def neutral_face(feats):
+    """Robust neutral face from a sequence of face_features(): signers keep their mouth
+    open much of the time, so the neutral mouth comes from the most-closed frames and the
+    neutral eye opening from the more-open frames (blinks excluded)."""
+    arr = {k: np.array([f[k] for f in feats]) for k in feats[0]}
+    closed = arr["open"] <= np.percentile(arr["open"], 25)
+    out = {"open": float(np.percentile(arr["open"], 5)), "width": float(np.median(arr["width"][closed]))}
+    for s in "lr":
+        out[f"brow_{s}"] = float(np.median(arr[f"brow_{s}"]))
+        out[f"eye_{s}"] = float(np.percentile(arr[f"eye_{s}"], 65))
+    return out
+
+
+def expression_weights(feat, neutral):
+    c = lambda v: float(np.clip(v, 0.0, 1.0))
+    w = {
+        "mouth-open": c((feat["open"] - neutral["open"]) / 0.10),
+        # +0.15 baseline: MakeHuman's resting mouth reads as a slight frown; interpreters keep a
+        # relaxed, pleasant neutral face
+        "mouth-corner-puller": c(0.15 + (feat["width"] - neutral["width"]) / 0.07),
+        "mouth-pursing": c((neutral["width"] - feat["width"]) / 0.07),
+    }
+    for s, side in (("l", "left"), ("r", "right")):
+        db = feat[f"brow_{s}"] - neutral[f"brow_{s}"]
+        de = (feat[f"eye_{s}"] - neutral[f"eye_{s}"]) / (neutral[f"eye_{s}"] + 1e-9)
+        w[f"eyebrows-{side}-up"] = c(db / 0.035)
+        w[f"eyebrows-{side}-down"] = c(-db / 0.03)
+        w[f"eye-{side}-closure"] = c(-de / 0.75)
+        w[f"eye-{side}-opened-up"] = c(de / 0.6)
+    return w
+
+
+# --------------------------------------------------------------------------
 # Retargeting asl_v2 motion (canonical units) onto the rig
 # --------------------------------------------------------------------------
 P, LH, RH, FACE = 0, 33, 54, 75
-ZS = 0.8   # MediaPipe depth is noisier than x/y: damp it a little
+ZS = 1.0   # hand depth now comes from metric 3D hand landmarks: no damping
 
 CHAINS = {}
 for s, off, pose_ids in (("l", LH, (11, 13)), ("r", RH, (12, 14))):
@@ -390,6 +497,10 @@ class Retargeter:
         self.arm_len = {s: (np.linalg.norm(self.rest[f"lowerarm_{s}"][:3, 3] - self.rest[f"upperarm_{s}"][:3, 3]) / sw,
                             np.linalg.norm(self.rest[f"hand_{s}"][:3, 3] - self.rest[f"lowerarm_{s}"][:3, 3]) / sw)
                         for s in "lr"}
+        self.cal = None
+        cal_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "avatar_calib.json")
+        if os.path.exists(cal_path):
+            self._load_calibration(json.load(open(cal_path)))
         for pb in rig.pose.bones:
             pb.rotation_mode = "QUATERNION"
         # palm normals in hand-bone local space at rest (same formula as at runtime)
@@ -401,7 +512,86 @@ class Retargeter:
             self.palm_local[s] = h[:3, :3].T @ (n / np.linalg.norm(n))
             self.palm_local[f"fore_{s}"] = self.rest[f"lowerarm_{s}"][:3, :3].T @ (n / np.linalg.norm(n))
 
-    def pose(self, f):
+    # ---------------- calibration (avatar measured with MediaPipe, see calibrate.py) -------------
+    FACE_ANCHORS = (1, 152, 13, 14, 10, 234, 454, 33, 263, 61, 291, 199)
+    TORSO_ANCHORS = ((0.0, 0.55), (0.0, 1.1), (0.42, 0.6), (-0.42, 0.6), (0.0, 1.7))
+
+    def _load_calibration(self, cal):
+        self.cal = cal
+        sw = cal["mp_shoulder_width_m"]
+        self.arm_len = {s: (np.linalg.norm(self.rest[f"lowerarm_{s}"][:3, 3] - self.rest[f"upperarm_{s}"][:3, 3]) / sw,
+                            np.linalg.norm(self.rest[f"hand_{s}"][:3, 3] - self.rest[f"lowerarm_{s}"][:3, 3]) / sw)
+                        for s in "lr"}
+        bh = cal["bone_heads_canon"]
+        self.shoulder = {s: np.array(bh[f"upperarm_{s}"]) for s in "lr"}
+        # distance from the bone wrist joint to MediaPipe's wrist landmark, along the hand
+        self.wrist_off = {}
+        for s in "lr":
+            hand, mid = np.array(bh[f"hand_{s}"]), np.array(bh[f"middle_01_{s}"])
+            u = (mid - hand) / np.linalg.norm(mid - hand)
+            mpw = cal["hands"].get(s.upper())
+            self.wrist_off[s] = float(np.dot(np.array(mpw[0]) - hand, u)) if mpw else 0.0
+        face = np.array(cal["face"])
+        self.anchor_av = np.vstack([face[list(self.FACE_ANCHORS)], [cal["pose"]["11"], cal["pose"]["12"]],
+                                    np.array(self.TORSO_ANCHORS)])
+        self.last = {}
+
+    def warp(self, p, f):
+        """Map a 2D canonical point of the signer onto the avatar's body (inverse-distance
+        weighted displacement field through matching face/shoulder/torso anchors)."""
+        a_d = np.vstack([f[FACE + np.array(self.FACE_ANCHORS), :2], f[P + 11, :2], f[P + 12, :2],
+                         np.array(self.TORSO_ANCHORS)])
+        d2 = np.sum((a_d - p[:2]) ** 2, 1)
+        w = 1.0 / (d2 + 0.02) ** 2
+        disp = (w[:, None] * (self.anchor_av - a_d)).sum(0) / w.sum()
+        return p[:2] + disp
+
+    EFFECTOR = {5: ("index_01", "head"), 9: ("middle_01", "head"), 13: ("ring_01", "head"),
+                17: ("pinky_01", "head"), 8: ("index_03", "tail"), 12: ("middle_03", "tail")}
+
+    def _effector_screen(self, s):
+        """Avatar's knuckle+fingertip centroid in calibrated canonical screen coords."""
+        cal = self.cal
+        sw, mx, mz = cal["mp_shoulder_width_m"], cal["mp_mid_world_xz"][0], cal["mp_mid_world_xz"][1]
+        pts = []
+        for bone, end in self.EFFECTOR.values():
+            pb = self.rig.pose.bones[f"{bone}_{s}"]
+            p = self.rig.matrix_world @ (pb.head if end == "head" else pb.tail)
+            pts.append([(p[0] - mx) / sw, -(p[2] - mz) / sw])
+        return np.mean(pts, 0)
+
+    def set_expression(self, f, neutral, objs):
+        """Drive facial expression units from the signer's face landmarks for frame f."""
+        w = expression_weights(face_features(f[FACE:FACE + 468, :2]), neutral)
+        for kind in ("body", "eyebrows", "eyelashes", "teeth", "tongue"):
+            o = objs.get(kind)
+            if o is None or o.data.shape_keys is None:
+                continue
+            kb = o.data.shape_keys.key_blocks
+            for unit, val in w.items():
+                if unit in kb:
+                    kb[unit].value = val
+        return w
+
+    def pose(self, f, iters=2):
+        """Retarget one frame. With calibration, a closed-loop end-effector correction
+        moves each wrist target until the avatar's knuckles+fingertips land where the
+        signer's do (mapped onto the avatar's body), so hand-hand and hand-body
+        relationships survive differences in finger proportions."""
+        if self.cal is None:
+            return self._pose_once(f, {})
+        corr = {"l": np.zeros(2), "r": np.zeros(2)}
+        idx = list(self.EFFECTOR)
+        for it in range(iters + 1):
+            self._pose_once(f, corr)
+            if it == iters:
+                break
+            bpy.context.view_layer.update()
+            for s, off in (("l", LH), ("r", RH)):
+                tgt = np.mean([self.warp(f[off + i], f) for i in idx], 0)
+                corr[s] = corr[s] + np.clip(tgt - self._effector_screen(s), -0.15, 0.15)
+
+    def _pose_once(self, f, corr):
         rig = self.rig
         posed = {}
 
@@ -419,8 +609,21 @@ class Retargeter:
         for s in "lr":
             off = LH if s == "l" else RH
             sh, el = (11, 13) if s == "l" else (12, 14)
-            E, T = solve_arm(f[P + sh], f[P + el], f[off], *self.arm_len[s])
-            arm_dirs = {f"upperarm_{s}": canon_dir(E - np.array([f[P + sh][0], f[P + sh][1], 0.0])),
+            if self.cal is not None:
+                S2 = self.shoulder[s]
+                T_mp = self.warp(f[off], f)                       # MediaPipe-wrist target on the avatar
+                E2 = self.warp(f[P + el], f)
+                hd = to_dir(f[off + 9]) - to_dir(f[off])           # 3D hand direction (Blender axes)
+                hd /= np.linalg.norm(hd) + 1e-9
+                hd2 = np.array([hd[0], -hd[2]])                     # its screen (x, y-down) component
+                T2 = T_mp - self.wrist_off[s] * hd2 + corr.get(s, 0.0)   # where the wrist *joint* must go
+                E, T = solve_arm(S2, np.array([*E2, 0.0]), np.array([*T2, 0.0]), *self.arm_len[s])
+                self.last[s] = dict(wrist_mp_target=T_mp, elbow_target=E2, shoulder=S2, hand_dir2=hd2)
+                S3 = np.array([S2[0], S2[1], 0.0])
+            else:
+                E, T = solve_arm(f[P + sh], f[P + el], f[off], *self.arm_len[s])
+                S3 = np.array([f[P + sh][0], f[P + sh][1], 0.0])
+            arm_dirs = {f"upperarm_{s}": canon_dir(E - S3),
                         f"lowerarm_{s}": canon_dir(T - E)}
             for part in ORDER:
                 name = f"{part}_{s}"
@@ -458,7 +661,7 @@ class Retargeter:
         Rr = _frame(np.array([0, 0, 1.0]), np.array([-1.0, 0, 0]))
         R_face = Rt @ Rr.T
         q = Matrix(R_face.tolist()).to_quaternion()
-        q_half = Quaternion().slerp(q, 0.5)
+        q_half = Quaternion().slerp(q, 0.5 * 0.85)   # neck + head share the turn; damp tracker noise
         for name, qq in (("neck_01", q_half), ("head", q_half)):
             R_rest = self.rest[name][:3, :3]
             local = R_rest.T @ np.array(qq.to_matrix()) @ R_rest

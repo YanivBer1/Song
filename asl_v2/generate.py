@@ -50,10 +50,19 @@ def tokens(text):
     return [t for t in (re.sub(r"[^\w\s]", "", tok).lower().strip() for tok in text.split()) if t]
 
 
-def build_motion(matches):
+def tracked_keypoints(word, url=None):
+    """v3 tracking (crop-model hands with identity checks) in the keypoints() layout."""
+    from .track import track
+    t = track(word, url)
+    return dict(pose=t["pose"], face=t["face"], lh=t["img_L"], rh=t["img_R"], size=t["size"], fps=t["fps"],
+                world_lh=t["world_L"], world_rh=t["world_R"])
+
+
+def build_motion(matches, tracking="v3"):
     from .extract import keypoints
     from .motion import process_clip, stitch
-    return stitch([process_clip(keypoints(m["sign"], m["url"])) for m in matches])
+    get = tracked_keypoints if tracking == "v3" else keypoints
+    return stitch([process_clip(get(m["sign"], m["url"])) for m in matches])
 
 
 def main():

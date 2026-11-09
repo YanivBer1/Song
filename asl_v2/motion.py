@@ -106,8 +106,50 @@ def _fill(arr, valid, max_gap=None):
 
 
 def _ease(n):
+    """Minimum-jerk time profile (Flash & Hogan 1985), the velocity shape of human reaching."""
     t = np.arange(1, n + 1) / (n + 1)
-    return 0.5 - 0.5 * np.cos(np.pi * t)
+    return 10 * t ** 3 - 15 * t ** 4 + 6 * t ** 5
+
+
+def _kabsch(A, B):
+    """Rotation R minimising |R A - B| for wrist-relative point sets (N,3)."""
+    H = A.T @ B
+    U, _, Vt = np.linalg.svd(H)
+    d = np.sign(np.linalg.det(Vt.T @ U.T))
+    return Vt.T @ np.diag([1, 1, d]) @ U.T
+
+
+def _rot_power(R, t):
+    """R^t via axis-angle (slerp from identity)."""
+    angle = np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1))
+    if angle < 1e-6:
+        return np.eye(3)
+    axis = np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]]) / (2 * np.sin(angle))
+    K = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    th = angle * t
+    return np.eye(3) + np.sin(th) * K + (1 - np.cos(th)) * K @ K
+
+
+def blend_hand(A, B, t):
+    """Blend two wrist-relative hand shapes like a real hand: rotate the whole hand
+    (slerp) while morphing the finger configuration, so a hand turning over never
+    collapses through itself as a straight-line point blend would."""
+    if t <= 0:
+        return A
+    if t >= 1:
+        return B
+    R = _kabsch(A, B)
+    local = (1 - t) * A + t * (B @ R)          # B expressed in A's orientation, blended
+    return local @ _rot_power(R, t).T
+
+
+def _hand_turn(a, b):
+    """Rotation angle (rad) between two frames' hand orientations, max over both hands."""
+    ang = 0.0
+    for off in (LH, RH):
+        R = _kabsch(a[off:off + 21] - a[off], b[off:off + 21] - b[off])
+        ang = max(ang, np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1)))
+    return ang
 
 
 def _smooth_weight(active, width):
@@ -123,7 +165,7 @@ def _smooth_weight(active, width):
 # --------------------------------------------------------------------------
 # Per-clip processing
 # --------------------------------------------------------------------------
-def process_clip(kp):
+def process_clip(kp, return_offset=False):
     pose, W, H = kp["pose"].copy(), *kp["size"]
     T = len(pose)
     sh_l, sh_r = pose[:, 11, :3], pose[:, 12, :3]
@@ -154,6 +196,17 @@ def process_clip(kp):
         else:
             hand = norm(hand_raw)
             hand_off = hand - hand[:, :1]                     # wrist-relative shape
+            world = kp.get("world_lh" if side == "L" else "world_rh")
+            if world is not None:
+                # Metric 3D hand shape from the hand model (real finger depth), scaled so its
+                # image-plane projection matches the 2D landmarks (per-clip median scale).
+                wv = ~np.isnan(world[:, 0, 0]) & det
+                if wv.sum() >= 3:
+                    w2 = world[wv, :, :2] - world[wv, :, :2].mean(1, keepdims=True)
+                    i2 = hand_raw[wv, :, :2] - hand_raw[wv, :, :2].mean(1, keepdims=True)
+                    px_per_m = np.median(np.linalg.norm(i2, axis=(1, 2)) / (np.linalg.norm(w2, axis=(1, 2)) + 1e-9))
+                    w_off = (world - world[:, :1]) * px_per_m / scale
+                    hand_off = np.where(wv[:, None, None], w_off, hand_off)
             hand_off, short = _fill(hand_off, det, MAX_GAP)
             wrist = np.where(det[:, None], hand[:, 0], body[:, w])
             # hand z is relative to its own wrist; anchor at the body wrist depth
@@ -174,7 +227,10 @@ def process_clip(kp):
             wrist_f = a * wrist + (1 - a) * rest_w
         fore = wrist_f - elbow_f
         rest_off = np.stack([_orient(REST_HAND[side], fore[t]) for t in range(T)])
-        hand_f = rest_off if hand_off is None else a[:, :, None] * hand_off + (1 - a[:, :, None]) * rest_off
+        if hand_off is None:
+            hand_f = rest_off
+        else:
+            hand_f = np.stack([blend_hand(rest_off[t], hand_off[t], weight[t]) for t in range(T)])
         out[:, P + e], out[:, P + w] = elbow_f, wrist_f
         out[:, off:off + 21] = wrist_f[:, None] + hand_f
         weights[side] = weight
@@ -189,9 +245,11 @@ def process_clip(kp):
 
     # Trim idle frames (no hand signing) at the start and end of the clip.
     busy = np.flatnonzero(np.maximum(weights["L"], weights["R"]) > 0.5)
+    start = 0
     if len(busy):
-        out = out[max(busy[0] - 2, 0): busy[-1] + 3]
-    return out
+        start = max(busy[0] - 2, 0)
+        out = out[start: busy[-1] + 3]
+    return (out, start) if return_offset else out
 
 
 def rest_frame(frame):
@@ -205,7 +263,18 @@ def rest_frame(frame):
 
 
 def _transition(a, b, n):
-    return np.stack([(1 - t) * a + t * b for t in _ease(n)])
+    frames = []
+    for t in _ease(n):
+        f = (1 - t) * a + t * b
+        for off in (LH, RH):                      # hands: rotate + morph around the moving wrist
+            f[off:off + 21] = f[off] + blend_hand(a[off:off + 21] - a[off], b[off:off + 21] - b[off], t)
+        frames.append(f)
+    return np.stack(frames)
+
+
+def _duration(a, b):
+    """Transition length from wrist travel (shoulder widths) and hand rotation."""
+    return int(np.clip(round(5 + 8 * _travel(a, b) + 7 * _hand_turn(a, b) / np.pi), 6, 22))
 
 
 def _travel(a, b):
@@ -247,12 +316,11 @@ def stitch(clips, lead=10, hold=8, speed=1.2):
     parts.append(np.repeat(start_rest[None], hold, axis=0))
     prev = start_rest
     for clip in clips:
-        n = int(np.clip(4 + 7 * _travel(prev, clip[0]), 5, 14)) if parts else lead
-        parts.append(_transition(prev, clip[0], n))
+        parts.append(_transition(prev, clip[0], _duration(prev, clip[0])))
         parts.append(clip)
         prev = clip[-1]
     end_rest = rest_frame(prev)
-    parts.append(_transition(prev, end_rest, lead))
+    parts.append(_transition(prev, end_rest, max(lead, _duration(prev, end_rest))))
     parts.append(np.repeat(end_rest[None], hold, axis=0))
     seq = np.concatenate(parts)
     seq[:, :LH] = gaussian_filter1d(seq[:, :LH], 1.2, axis=0, mode="nearest")

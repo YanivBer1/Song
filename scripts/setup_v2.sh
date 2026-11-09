@@ -23,4 +23,8 @@ if [ ! -d third_party/mh_assets/skins ]; then
   curl -L -o /tmp/mh_assets.zip https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip
   unzip -q /tmp/mh_assets.zip -d third_party/mh_assets && rm /tmp/mh_assets.zip
 fi
+mkdir -p asl_v2/models
+[ -f asl_v2/models/hand_landmarker.task ] || curl -L -o asl_v2/models/hand_landmarker.task \
+  https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+uv pip install -p .venv/bin/python huggingface_hub pose-format
 echo "ready"
