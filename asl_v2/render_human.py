@@ -51,7 +51,7 @@ def setup_scene(rig, res, samples):
     height = top - bottom
 
     cam_data = bpy.data.cameras.new("cam")
-    cam_data.lens = 85
+    cam_data.lens = 50          # interpreter-video style: ~2 m away, natural perspective on the hands
     cam = bpy.data.objects.new("cam", cam_data)
     sens_h = cam_data.sensor_width * res[1] / res[0]
     dist = height * cam_data.lens / sens_h
