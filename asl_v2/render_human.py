@@ -120,7 +120,7 @@ def main():
             seq = np.load(job["motion"])
             feats = [mh_avatar.face_features(f[mh_avatar.FACE:mh_avatar.FACE + 468, :2]) for f in seq]
             neutral = mh_avatar.neutral_face(feats)
-            retarget.flip = {"l": False, "r": False}
+            retarget.plan_depth(seq)
             for i in range(len(seq)):              # pose every frame: keeps temporal state honest
                 retarget.pose(seq[i])
                 if i in job["frames"]:
@@ -133,12 +133,15 @@ def main():
     feats = [mh_avatar.face_features(f[mh_avatar.FACE:mh_avatar.FACE + 468, :2]) for f in seq]
     neutral = mh_avatar.neutral_face(feats)
 
+    retarget.plan_depth(seq)
+
     def pose(f):
         retarget.pose(f)
         retarget.set_expression(f, neutral, objs)
 
     if args.frames:
         for i in map(int, args.frames.split(",")):
+            retarget.frame_t = i - 1               # index the depth plan by the real frame
             pose(seq[i])
             bpy.context.view_layer.update()
             sc.render.filepath = f"{os.path.splitext(args.output)[0]}_{i:04d}.png"

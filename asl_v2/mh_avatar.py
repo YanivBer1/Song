@@ -746,6 +746,38 @@ class Retargeter:
             g = self._mirror_depth(g, RH)
         return g
 
+    def plan_depth(self, seq, smooth=15, min_run=10):
+        """Decide the depth reading of each hand for a whole sequence up front: score
+        both readings on every frame, then median-filter the decision and remove runs
+        shorter than `min_run`, so a hand never snaps orientation for a few frames."""
+        from scipy.ndimage import median_filter
+        votes = {"l": [], "r": []}
+        for f in seq:
+            errs = {}
+            for flip in (False, True):
+                g = self._mirror_depth(self._mirror_depth(f, LH), RH) if flip else f
+                self._pose_once(g, {})
+                bpy.context.view_layer.update()
+                errs[flip] = {s: self._shape_err(self._hand_screen(s), f[off:off + 21, :2])
+                              for s, off in (("l", LH), ("r", RH))}
+            for s in "lr":
+                votes[s].append(1.0 if errs[True][s] < 0.85 * errs[False][s] else 0.0)
+        plan = {}
+        for s in "lr":
+            d = median_filter(np.array(votes[s]), size=smooth, mode="nearest") > 0.5
+            i = 0
+            while i < len(d):                      # merge short runs into their neighbours
+                j = i
+                while j < len(d) and d[j] == d[i]:
+                    j += 1
+                if j - i < min_run and (i > 0 or j < len(d)):
+                    d[i:j] = d[i - 1] if i > 0 else d[j]
+                i = j
+            plan[s] = d
+        self.depth_plan = plan
+        self.frame_t = -1
+        return plan
+
     def pose(self, f, iters=2):
         """Retarget one frame. With calibration, a closed-loop end-effector correction
         moves each wrist target until the avatar's knuckles+fingertips land where the
@@ -754,7 +786,13 @@ class Retargeter:
         if self.cal is None:
             return self._pose_once(f, {})
         self.frame_t = getattr(self, "frame_t", -1) + 1
-        if getattr(self, "disambiguate", True):
+        plan = getattr(self, "depth_plan", None)
+        if plan is not None and self.frame_t < len(plan["l"]):
+            if plan["l"][self.frame_t]:
+                f = self._mirror_depth(f, LH)
+            if plan["r"][self.frame_t]:
+                f = self._mirror_depth(f, RH)
+        elif getattr(self, "disambiguate", True):
             f = self._choose_depth(f)
         corr = {"l": np.zeros(2), "r": np.zeros(2)}
         idx = list(self.EFFECTOR)

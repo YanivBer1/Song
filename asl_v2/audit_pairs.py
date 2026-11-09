@@ -6,14 +6,14 @@ scored. Writes outputs/audit/pairs.json + pairs_summary.md.
   .venv/bin/python -m asl_v2.audit_pairs [--words a,b,c]
 
 Per junction:
-  freeze        hands frozen (both wrists < 1.4 mm/frame) for >= 4 frames around it
+  freeze        hands frozen (both wrists < 2 cm/s) for >= 4 frames around it
                 (skipped if A or B is a static sign, whose brief hold is its content)
   vel_jump      acceleration at the hand-off > 1.5 x the 95th pct inside real strokes
   loop          wrist path length > 2.2 x straight distance (and distance > 0.15 sw)
   shape_pop     max per-frame change of the wrist-relative hand configuration
                 > 2.5 x the 95th pct of that change inside real strokes
-  body_pass     a wrist passes behind the torso front plane (z > -0.25 sw) while
-                in front of the torso (|x| < 0.55, 0.05 < y < 1.6)
+  (hand depth is decided on the avatar - IK + collision resolution - so body
+   contact/penetration is audited in Blender: evaluate.py / eval_suite.py)
   frames        transition length
 """
 
@@ -84,12 +84,9 @@ def audit(words):
                 D = np.linalg.norm(path[-1] - path[0])
                 loop |= bool(D > 0.15 and L > 2.2 * D)
             shape_pop = bool(_shape_change(seq)[ta:tb + 1].max() > shape_thr)
-            p = wr[ta:tb + 1].reshape(-1, 3)
-            inside = (np.abs(p[:, 0]) < 0.55) & (p[:, 1] > 0.05) & (p[:, 1] < 1.6)
-            body_pass = bool(np.any(inside & (p[:, 2] > -0.25)))
             freeze = junction_no_freeze(seq, segs, static=info["static"]) < 100
             results[f"{a}>{b}"] = dict(freeze=bool(freeze), vel_jump=vel_jump, loop=loop, shape_pop=shape_pop,
-                                       body_pass=body_pass, frames=int(tb - ta))
+                                       frames=int(tb - ta))
     return results, dict(acc_thr=acc_thr, shape_thr=shape_thr)
 
 
@@ -104,7 +101,7 @@ def main():
     res, thr = audit(words)
     json.dump(dict(thresholds=thr, pairs=res), open(os.path.join(OUT, "pairs.json"), "w"))
     n = len(res)
-    keys = ["freeze", "vel_jump", "loop", "shape_pop", "body_pass"]
+    keys = ["freeze", "vel_jump", "loop", "shape_pop"]
     clean = sum(not any(r[k] for k in keys) for r in res.values())
     lines = [f"# All-orders transition audit: {n} ordered sign pairs ({time.time() - t0:.0f}s)", "",
              f"**Clean junctions (no defect of any kind): {clean}/{n} = {100 * clean / n:.2f}%**", "",

@@ -142,6 +142,7 @@ def evaluate(seq, valid=None):
             yc, yp = np.array(b.matrix_local.col[1][:3]), np.array(b.parent.matrix_local.col[1][:3])
             rest_angle[b.name] = np.degrees(np.arccos(np.clip(yc @ yp, -1, 1)))
     T = len(seq)
+    rt.plan_depth(seq)
     rec = {k: [] for k in ("shape", "wrist", "elbow", "limits", "body", "hands")}
     joints_all = []
     depsgraph = bpy.context.evaluated_depsgraph_get()

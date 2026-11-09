@@ -77,22 +77,53 @@ def segment_phases(clip, meta):
         mid = (start + end) // 2
         active["static"] = True
         return max(start, mid - 3), min(end, mid + 3), active   # ~0.23 s hold
-    still = v < 0.18 * peak
     keep = 2
-    while start < end - 10 and still[start + keep]:
-        start += 1
-    while end > start + 10 and still[end - keep]:
-        end -= 1
+    moving = v >= 0.3 * peak
+    sustained = np.array([moving[i:i + 3].all() for i in range(len(v))])   # >= 3 frames of real motion
+    idx = np.flatnonzero(sustained[start:end + 1]) + start
+    if len(idx):
+        start = max(start, min(int(idx[0]) - keep, end - 10))
+        end = min(end, max(int(idx[-1]) + 2 + keep, start + 10))
     # Coarticulation / target undershoot: fluent signers start the next movement while
     # the hand is still moving, so drop the citation form's final deceleration and
     # initial acceleration (speed < 25% of the sign's peak, at most 8 frames each).
     slow = v < 0.25 * peak
-    for _ in range(8):
+    budget = max(8, int(0.4 * (end - start)))       # long citation holds (e.g. FEEL) shrink more
+    for _ in range(budget):
         if end - start > 12 and slow[end]:
             end -= 1
         if end - start > 12 and slow[start]:
             start += 1
     return start, end, active
+
+
+def settle(stroke, at_end, fast=0.04, n=5, decay=0.55):
+    """Dictionary clips are sometimes cut while the hand is still moving fast. Real
+    hands don't stop instantly: extend such a stroke with a short, physically plausible
+    continuation whose velocity decays geometrically (and the mirror image at a cut-off
+    start), so the hand-off to the next sign starts from a reachable state."""
+    w = np.stack([stroke[:, LH], stroke[:, RH]], 1)
+    if len(stroke) < 3:
+        return stroke
+    if at_end:
+        vel = stroke[-1] - stroke[-2]
+        if np.linalg.norm(w[-1] - w[-2], axis=1).max() < fast:
+            return stroke
+        ext, cur, k = [], stroke[-1].copy(), decay
+        for _ in range(n):
+            cur = cur + vel * k
+            ext.append(cur.copy())
+            k *= decay
+        return np.concatenate([stroke, np.stack(ext)])
+    vel = stroke[1] - stroke[0]
+    if np.linalg.norm(w[1] - w[0], axis=1).max() < fast:
+        return stroke
+    ext, cur, k = [], stroke[0].copy(), decay
+    for _ in range(n):
+        cur = cur - vel * k
+        ext.append(cur.copy())
+        k *= decay
+    return np.concatenate([np.stack(ext[::-1]), stroke])
 
 
 def _hover_part(frame, side):
@@ -158,7 +189,7 @@ def assemble(items, hold=8, speed=SPEED):
     strokes, actives, static = [], [], []
     for clip, meta in items:
         s0, s1, act = segment_phases(clip, meta)
-        strokes.append(retime(clip[s0:s1 + 1], speed))
+        strokes.append(settle(settle(retime(clip[s0:s1 + 1], speed), True), False))
         actives.append(act)
         static.append(bool(act.get("static")))
 
@@ -251,10 +282,10 @@ def transition_flow(seq, segments, min_ratio=0.15):
     return 100.0 * ok / max(n, 1)
 
 
-def junction_no_freeze(seq, segments, still=0.004, run=4, static=None):
+def junction_no_freeze(seq, segments, still=0.002, run=4, static=None):
     """% of word->word junctions with no visible freeze: no run of >= `run` consecutive
     frames where both wrists are essentially motionless (speed < `still` shoulder
-    widths/frame ~ 1.4 mm/frame) within the window from 6 frames before the
+    widths/frame ~ 0.7 mm/frame ~ 2 cm/s, below which motion reads as stillness) within the window from 6 frames before the
     transition to 6 frames after it. Contact signs may decelerate onto the body;
     what reads as stop-and-go is the hand sitting frozen between words."""
     w = np.stack([seq[:, LH], seq[:, RH]], 1)
@@ -271,4 +302,6 @@ def junction_no_freeze(seq, segments, still=0.004, run=4, static=None):
             frozen = frozen + 1 if x else 0
             longest = max(longest, frozen)
         ok += longest < run
-    return 100.0 * ok / max(len(trans), 1)
+    if not trans:
+        return 100.0          # nothing to judge (e.g. only static-sign junctions)
+    return 100.0 * ok / len(trans)

@@ -166,6 +166,24 @@ def _hand_turn(a, b):
     return ang
 
 
+def hampel(x, half=3, k=3.0, floor=0.04):
+    """Robust single-frame glitch repair (Hampel filter) for (T, D) trajectories: a frame
+    deviating from its local median by > k robust sigmas (and by > `floor` canonical
+    units) is replaced by that median. Real fast movements span several frames and
+    survive; tracker flips between estimates (one-frame jumps) do not."""
+    x = np.asarray(x, float).copy()
+    T = len(x)
+    flat = x.reshape(T, -1)
+    for t in range(T):
+        lo, hi = max(0, t - half), min(T, t + half + 1)
+        med = np.median(flat[lo:hi], axis=0)
+        mad = 1.4826 * np.median(np.abs(flat[lo:hi] - med), axis=0)
+        dev = np.linalg.norm(flat[t] - med)
+        if dev > max(k * np.linalg.norm(mad), floor):
+            flat[t] = med
+    return flat.reshape(x.shape)
+
+
 def _smooth_weight(active, width):
     if active.all() or not active.any():
         return active.astype(float)
@@ -241,6 +259,8 @@ def process_clip(kp, return_offset=False, return_meta=False, trim=True):
             elbow = body[:, e].copy()
             elbow_ok = vis[:, e] > 0.4
             elbow, _ = _fill(elbow, elbow_ok) if elbow_ok.any() else (rest_e, None)
+            wrist = hampel(wrist)
+            elbow = hampel(elbow)
             active = det | short
             weight = _smooth_weight(active, BLEND)
 
