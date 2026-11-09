@@ -93,6 +93,8 @@ def main():
     ap.add_argument("--hair", default="short02")
     ap.add_argument("--closeup", action="store_true", help="frame chest+hands (inspection)")
     ap.add_argument("--faceup", action="store_true", help="frame the face (inspection)")
+    ap.add_argument("--audit-view", action="store_true",
+                    help="orthographic camera matching the source QA crop (calibrated)")
     ap.add_argument("--batch", help="JSON list of {motion, frames, prefix}: render stills for many motions")
     args = ap.parse_args()
 
@@ -113,6 +115,14 @@ def main():
         head_z = np.array(rig.data.bones["head"].head_local)[2]
         sens_h = cam.data.sensor_width * res[1] / res[0]
         cam.location = (0, -0.30 * cam.data.lens / sens_h, head_z + 0.035)
+    if args.audit_view:
+        cal = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "avatar_calib.json")))
+        sw = cal["mp_shoulder_width_m"]
+        mx, mz = cal["mp_mid_world_xz"]
+        cam = bpy.context.scene.camera
+        cam.data.type = "ORTHO"
+        cam.data.ortho_scale = 2.16 * sw * res[0] / res[1]
+        cam.location = (mx, -5.0, mz - 0.30 * sw)
     retarget = mh_avatar.Retargeter(rig, objs)
     sc = bpy.context.scene
     if args.batch:

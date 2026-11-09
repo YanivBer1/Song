@@ -104,6 +104,22 @@ def track_clip(video_path):
             patch, M = _crop(frame, c, size)
             res = hands.detect(mp.Image(image_format=mp.ImageFormat.SRGB,
                                         data=cv2.cvtColor(patch, cv2.COLOR_BGR2RGB)))
+            R2 = np.eye(2)
+            if not res.hand_landmarks:
+                # Rotation augmentation: the detector is trained mostly on upright hands; a hand
+                # pointing down/sideways is often found once its crop is rotated upright.
+                for ang in (180, 90, 270):
+                    R = cv2.getRotationMatrix2D((CROP / 2, CROP / 2), ang, 1.0)
+                    rot = cv2.warpAffine(patch, R, (CROP, CROP), borderValue=(255, 255, 255))
+                    r2 = hands.detect(mp.Image(image_format=mp.ImageFormat.SRGB,
+                                               data=cv2.cvtColor(rot, cv2.COLOR_BGR2RGB)))
+                    if r2.hand_landmarks:
+                        # fold the rotation into the crop transform so the code below maps back
+                        M = np.vstack([R, [0, 0, 1]]) @ np.vstack([M, [0, 0, 1]])
+                        M = M[:2].astype(np.float32)
+                        R2 = R[:, :2]
+                        res = r2
+                        break
             Minv = cv2.invertAffineTransform(M)
             expect = hol[side][0, :2] if hol[side] is not None else pose[POSE_HAND[side][0], :2]
             best = None
@@ -111,11 +127,12 @@ def track_clip(video_path):
                 pts = np.array([[l.x * CROP, l.y * CROP, l.z * CROP] for l in lms], np.float32)
                 full = pts.copy()
                 full[:, :2] = pts[:, :2] @ Minv[:, :2].T + Minv[:, 2]
-                full[:, 2] = pts[:, 2] / M[0, 0]
+                full[:, 2] = pts[:, 2] / np.sqrt(abs(np.linalg.det(M[:, :2])))
                 d = np.linalg.norm(full[0, :2] - expect)
                 score = res.handedness[k][0].score
                 if best is None or d < best[0]:
                     world = np.array([[l.x, l.y, l.z] for l in res.hand_world_landmarks[k]], np.float32)
+                    world[:, :2] = world[:, :2] @ R2          # back to the unrotated image axes
                     best = (d, full, world, score)
             if best is not None and best[0] < 1.2 * size:
                 found[side] = best
@@ -129,8 +146,9 @@ def track_clip(video_path):
             span = max(np.ptp(img[:, 1]), np.ptp(img[:, 0]), 1e-6)
             d_own = np.linalg.norm(hol[side][:, :2] - img, axis=1).mean() if hol[side] is not None else None
             d_oth = np.linalg.norm(hol[other][:, :2] - img, axis=1).mean() if hol[other] is not None else None
-            if d_oth is not None and (d_own is None or d_oth < d_own):
-                del found[side]
+            if d_oth is not None and ((d_own is None and d_oth < 0.5 * span) or
+                                      (d_own is not None and d_oth < d_own)):
+                del found[side]       # it is actually the other hand
             elif d_own is not None and d_own > 0.45 * span:
                 del found[side]
 

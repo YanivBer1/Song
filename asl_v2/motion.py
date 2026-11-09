@@ -262,6 +262,12 @@ def process_clip(kp, return_offset=False, return_meta=False, trim=True):
             wrist = hampel(wrist)
             elbow = hampel(elbow)
             active = det | short
+            # Hold, don't drop: if hand tracking is lost but the body tracker still sees the
+            # wrist up in signing space, the signer is holding the sign (often an occluded
+            # hand) - keep the last tracked handshape there instead of blending to rest.
+            wrist_up = (vis[:, w] > 0.5) & (pose[:, w, 1] < 0.92 * H) & (body[:, w, 1] < 1.25)
+            if det.any():
+                active = active | (wrist_up & (np.arange(T) > np.flatnonzero(det)[0]))
             weight = _smooth_weight(active, BLEND)
 
         a = weight[:, None]
@@ -279,6 +285,29 @@ def process_clip(kp, return_offset=False, return_meta=False, trim=True):
         out[:, P + e], out[:, P + w] = elbow_f, wrist_f
         out[:, off:off + 21] = wrist_f[:, None] + hand_f
         weights[side] = weight
+
+    # Battison's Symmetry Condition: when both hands move in a sign they share the handshape.
+    # A hand that was never tracked but whose wrist the body tracker sees up in signing space
+    # for a sustained stretch gets the mirror image of the other hand's shape.
+    for side, (s, e, w, _, off, sign) in SIDES.items():
+        other = "R" if side == "L" else "L"
+        o_off = SIDES[other][4]
+        hand_raw = kp["lh" if side == "L" else "rh"]
+        wrist_up = (vis[:, w] > 0.5) & (pose[:, w, 1] < 0.92 * H) & (body[:, w, 1] < 1.25)
+        if (~np.isnan(hand_raw[:, 0, 0])).sum() == 0 and wrist_up.mean() > 0.3 and weights[other].max() > 0.5:
+            wrist, _ = _fill(body[:, w].copy(), wrist_up)
+            wrist = hampel(wrist)
+            elbow, _ = _fill(body[:, e].copy(), vis[:, e] > 0.4) if (vis[:, e] > 0.4).any() else (body[:, e], None)
+            wt = _smooth_weight(wrist_up, BLEND)[:, None]
+            rest_e, rest_w = rest_arm(body[:, s], sign)
+            el_f = wt * elbow + (1 - wt) * rest_e
+            wr_f = wt * wrist + (1 - wt) * rest_w
+            mirror = (out[:, o_off:o_off + 21] - out[:, o_off:o_off + 1]) * np.array([-1.0, 1.0, 1.0])
+            rest_off = np.stack([_orient(REST_HAND[side], wr_f[t] - el_f[t]) for t in range(T)])
+            hand_f = np.stack([blend_hand(rest_off[t], mirror[t], wt[t, 0]) for t in range(T)])
+            out[:, P + e], out[:, P + w] = el_f, wr_f
+            out[:, off:off + 21] = wr_f[:, None] + hand_f
+            weights[side] = wt[:, 0]
 
     # Hand-over-hand depth order: stored as a small z offset on each hand (canonical units,
     # negative = towards the camera); the retargeter adds it to the IK wrist depth.

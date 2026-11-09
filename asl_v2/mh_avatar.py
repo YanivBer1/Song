@@ -528,6 +528,7 @@ class Retargeter:
             pb.rotation_mode = "QUATERNION"
         if objs is not None:
             self._build_collision(objs)
+        self._calibrate_hinges()
         # palm normals in hand-bone local space at rest (same formula as at runtime)
         self.palm_local = {}
         for s in "lr":
@@ -536,6 +537,31 @@ class Retargeter:
             n = np.cross(p5 - p0, p17 - p0)
             self.palm_local[s] = h[:3, :3].T @ (n / np.linalg.norm(n))
             self.palm_local[f"fore_{s}"] = self.rest[f"lowerarm_{s}"][:3, :3].T @ (n / np.linalg.norm(n))
+
+    # ---------------- hinge joints (PIP/DIP, thumb MCP/IP) --------------------------------------
+    def _calibrate_hinges(self):
+        """Find each hinge bone's flexion axis sign on the rig: flexing always brings the
+        fingertip closer to the wrist (local X for finger PIP/DIP, local Z for thumb MCP/IP)."""
+        self.hinge = {}
+        rig = self.rig
+        for s in "lr":
+            wrist = np.array(rig.data.bones[f"hand_{s}"].head_local)
+            for fn in ("thumb", "index", "middle", "ring", "pinky"):
+                tip_bone = rig.pose.bones[f"{fn}_03_{s}"]
+                for k in ("02", "03"):
+                    name = f"{fn}_{k}_{s}"
+                    axis = Vector((0, 0, 1)) if fn == "thumb" else Vector((1, 0, 0))
+                    pb = rig.pose.bones[name]
+                    pb.rotation_mode = "QUATERNION"
+                    pb.rotation_quaternion = (1, 0, 0, 0)
+                    bpy.context.view_layer.update()
+                    d0 = np.linalg.norm(np.array(tip_bone.tail) - wrist)
+                    pb.rotation_quaternion = Quaternion(axis, np.radians(20))
+                    bpy.context.view_layer.update()
+                    d1 = np.linalg.norm(np.array(tip_bone.tail) - wrist)
+                    pb.rotation_quaternion = (1, 0, 0, 0)
+                    self.hinge[name] = (np.array(axis), 1.0 if d1 < d0 else -1.0)
+        bpy.context.view_layer.update()
 
     # ---------------- collision proxies: torso (static) + head (rigid with the head bone) -----------
     def _build_collision(self, objs):
@@ -578,6 +604,11 @@ class Retargeter:
             pts.append(np.array(self.rig.matrix_world @ self.rig.pose.bones[f"{fn}_03_{s}"].tail))
         for fn in ("index", "middle", "ring", "pinky"):
             pts.append(np.array(self.rig.matrix_world @ self.rig.pose.bones[f"{fn}_01_{s}"].head))
+        # forearm (wrist -> 30% towards the elbow) must not pass through the torso either
+        wr = np.array(self.rig.matrix_world @ self.rig.pose.bones[f"hand_{s}"].head)
+        el = np.array(self.rig.matrix_world @ self.rig.pose.bones[f"lowerarm_{s}"].head)
+        for t in (0.0, 0.15, 0.3):
+            pts.append(wr + t * (el - wr))
         return np.array(pts)
 
     def _body_penetration(self, s, margin=0.006):
@@ -599,6 +630,13 @@ class Retargeter:
                 if d < margin:
                     worst = max(worst, margin - d)
         return worst
+
+    @staticmethod
+    def _hands_overlap_in_source(f):
+        a, b = f[LH:LH + 21, :2], f[RH:RH + 21, :2]
+        ix = min(a[:, 0].max(), b[:, 0].max()) - max(a[:, 0].min(), b[:, 0].min())
+        iy = min(a[:, 1].max(), b[:, 1].max()) - max(a[:, 1].min(), b[:, 1].min())
+        return ix > 0 and iy > 0
 
     def _hand_hand_overlap(self, r_finger=0.0085):
         """How far (m) the two hands' finger capsules interpenetrate (0 if apart)."""
@@ -820,9 +858,15 @@ class Retargeter:
                     zx[s] -= (pen + 0.004) / sw
                     moved = True
             ov = self._hand_hand_overlap()
+            front = "l" if f[LH, 2] < f[RH, 2] - 1e-6 else "r"
+            back = "r" if front == "l" else "l"
             if ov > 0:
-                front = "l" if f[LH, 2] < f[RH, 2] - 1e-6 else "r"
                 zx[front] -= (ov + 0.003) / sw
+                moved = True
+            elif self._hands_overlap_in_source(f) and -0.03 < ov < -0.004:
+                # the signer's hands overlap in the image and the avatar's are close but apart
+                # in depth: bring the back hand forward until they touch (contact, not a gap)
+                zx[back] -= (-ov - 0.002) / sw
                 moved = True
             if not moved:
                 break
@@ -910,6 +954,25 @@ class Retargeter:
                     par = self.parent[name]
                     head_rel[name] = head_rel[par] + posed[par] @ self.rest[par][:3, :3].T @ (
                         self.rest[name][:3, 3] - self.rest[par][:3, 3])
+                    if name in self.hinge and getattr(self, "use_hinge", False):
+                        # Hinge joint: apply the signer's measured bend angle about the joint's
+                        # true flexion axis (exact curl; aiming at points under-curls fists).
+                        D = to_dir(f[off:off + 21])
+                        u = D[a - off] - D[a - off - 1] if (a - off) % 4 != 1 else D[a - off] - D[0]
+                        w = D[b - off] - D[a - off]
+                        ang = np.arccos(np.clip(u @ w / (np.linalg.norm(u) * np.linalg.norm(w) + 1e-9), -1, 1))
+                        axis, sgn = self.hinge[name]
+                        RA = chain_rest(name)
+                        R_final = RA @ np.array(Quaternion(Vector(axis), sgn * ang).to_matrix())
+                        qb = Matrix((RA.T @ R_final).tolist()).to_quaternion()
+                        fn_, k_ = part.split("_")
+                        lim = np.radians((ROM_THUMB if fn_ == "thumb" else ROM)[k_])
+                        if qb.angle > lim:
+                            qb = Quaternion().slerp(qb, lim / qb.angle)
+                            R_final = RA @ np.array(qb.to_matrix())
+                        posed[name] = R_final
+                        rig.pose.bones[name].rotation_quaternion = qb
+                        continue
                 if np.linalg.norm(d) < 1e-6:
                     continue
                 d /= np.linalg.norm(d)
