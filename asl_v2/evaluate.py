@@ -11,12 +11,18 @@ mesh and compared with the target motion.
 Metrics (higher is better unless noted; target >= 95%):
   hand_shape_pck   % finger joints whose screen position relative to the knuckle centre is
                    within 10% of hand length (wrist->middle fingertip) of the target
+  signing_handshape_pck  PRIMARY handshape score: frames where the hand is signing, the 15
+                   visible finger/thumb joints (MCP/IP/tip of thumb, PIP/DIP/tip of fingers),
+                   each hand normalised by its own size, within 0.25 of the hand's RMS radius
+  hand_placement_pck  % frames*hands whose knuckle+fingertip centroid is within 0.10 shoulder
+                   widths of the signer's (mapped onto the avatar's body)
   wrist_pck        % frames*hands with the wrist within 0.10 shoulder widths of its
                    body-relative target (signer landmarks warped onto the avatar)
   elbow_pck        % frames*hands with the upper-arm screen direction within 15 deg
                    (avatar arm proportions differ from the signers', so position can't match)
-  joint_limits_ok  % frames*hands where every avatar finger joint is inside
-                   anatomical range of motion (PIP<=110, DIP<=90, MCP<=95, thumb IP<=85)
+  joint_limits_ok  % frames*hands where every avatar finger bone's bend relative to its
+                   parent (from the avatar's rest pose) is inside anatomical range of motion
+                   (MCP<=95, PIP<=110, DIP<=90; thumb CMC/MCP<=70, IP<=85)
   no_body_penetration  % frames where no finger joint is inside the body mesh
   no_hand_penetration  % frames where the hands' finger capsules don't intersect
   smooth_frames    % frames without a velocity spike (> 4x the clip's median joint speed
@@ -62,6 +68,26 @@ def flexions(h):
     out["thumb_mcp"] = _ang(h[2] - h[1], h[3] - h[2])
     out["thumb_ip"] = _ang(h[3] - h[2], h[4] - h[3])
     return out
+
+
+BONE_LIMITS = {"01": 95.0, "02": 110.0, "03": 90.0}          # MCP, PIP, DIP flexion (deg)
+THUMB_LIMITS = {"01": 70.0, "02": 70.0, "03": 85.0}          # CMC swing, MCP, IP
+
+
+def bone_angles_ok(rig, s, rest_angle):
+    """Anatomical validity on the rig itself: each finger bone's bend relative to its
+    parent, measured from the avatar's own rest pose."""
+    pb = rig.pose.bones
+    for fn in ("thumb", "index", "middle", "ring", "pinky"):
+        for k in ("01", "02", "03"):
+            name = f"{fn}_{k}_{s}"
+            par = pb[name].parent
+            yc = np.array(pb[name].matrix.col[1][:3])
+            yp = np.array(par.matrix.col[1][:3])
+            ang = np.degrees(np.arccos(np.clip(yc @ yp, -1, 1))) - rest_angle[name]
+            if ang > (THUMB_LIMITS if fn == "thumb" else BONE_LIMITS)[k]:
+                return False
+    return True
 
 
 def limits_ok(h):
@@ -110,6 +136,11 @@ def evaluate(seq, valid=None):
                 vmask[v.index] = g.group in tg and g.weight > 0.5
         collide.append((o, [p.index for p in o.data.polygons if all(vmask[i] for i in p.vertices)]))
     finger_r = 0.009  # metres, finger capsule radius for hand-hand test
+    rest_angle = {}
+    for b in rig.data.bones:
+        if b.parent is not None and b.name.split("_")[0] in ("thumb", "index", "middle", "ring", "pinky"):
+            yc, yp = np.array(b.matrix_local.col[1][:3]), np.array(b.parent.matrix_local.col[1][:3])
+            rest_angle[b.name] = np.degrees(np.arccos(np.clip(yc @ yp, -1, 1)))
     T = len(seq)
     rec = {k: [] for k in ("shape", "wrist", "elbow", "limits", "body", "hands")}
     joints_all = []
@@ -142,15 +173,21 @@ def evaluate(seq, valid=None):
                 ca /= np.sqrt((ca ** 2).sum(1).mean()) + 1e-9
                 ct /= np.sqrt((ct ** 2).sum(1).mean()) + 1e-9
                 rec.setdefault("shape_n", []).extend((np.linalg.norm(ca - ct, axis=1) < 0.25).tolist())
+                if tgt[0, 1] < 1.15:      # hand is signing (not resting low at the side)
+                    vis = np.array([2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16, 18, 19, 20]) - 1
+                    rec.setdefault("shape_sign", []).extend((np.linalg.norm(ca[vis] - ct[vis], axis=1) < 0.25).tolist())
                 L = rt.last[s]
                 u = scr[9] - scr[0]
                 wrist_mp = scr[0] + rt.wrist_off[s] * u / (np.linalg.norm(u) + 1e-9) * np.linalg.norm(L["hand_dir2"])
                 rec["wrist"].append(np.linalg.norm(wrist_mp - L["wrist_mp_target"]) < 0.10)
+                eff = [5, 9, 13, 17, 8, 12]
+                hand_tgt = np.mean([rt.warp(f[off + i], f) for i in eff], 0)
+                rec.setdefault("hand_place", []).append(np.linalg.norm(scr[eff].mean(0) - hand_tgt) < 0.10)
                 e_scr = np.array([(el[0] - mid[0]) / sw, -(el[2] - mid[2]) / sw])
                 ua, ut = e_scr - L["shoulder"], L["elbow_target"] - L["shoulder"]
                 cosv = ua @ ut / (np.linalg.norm(ua) * np.linalg.norm(ut) + 1e-9)
                 rec["elbow"].append(np.degrees(np.arccos(np.clip(cosv, -1, 1))) < 15)
-            rec["limits"].append(limits_ok(pts))
+            rec["limits"].append(bone_angles_ok(rig, s, rest_angle))
         joints_all.append(np.concatenate([av["l"], av["r"]]))
         # body penetration: finger joints inside the evaluated body mesh
         verts, polys = [], []
@@ -193,6 +230,8 @@ def evaluate(seq, valid=None):
         "frames": T,
         "hand_shape_pck": pct(rec["shape"]),
         "handshape_pck_size_norm": pct(rec.get("shape_n", [])),
+        "signing_handshape_pck": pct(rec.get("shape_sign", [])),
+        "hand_placement_pck": pct(rec.get("hand_place", [])),
         "wrist_pck": pct(rec["wrist"]),
         "elbow_pck": pct(rec["elbow"]),
         "joint_limits_ok": pct(rec["limits"]),

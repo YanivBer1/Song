@@ -18,8 +18,9 @@ from .extract import VIDEO_BASE
 from .generate import build_motion
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WORDS = "hi my name is john he win pm seven billion dollars".split()
-TARGETS = ["hand_shape_pck", "handshape_pck_size_norm", "wrist_pck", "elbow_pck", "joint_limits_ok",
+WORDS = sorted(os.path.splitext(f)[0] for f in os.listdir(os.path.join(ROOT, "cache", "tracks"))
+               if f.endswith(".npz")) if os.path.isdir(os.path.join(ROOT, "cache", "tracks")) else []
+TARGETS = ["signing_handshape_pck", "hand_shape_pck", "handshape_pck_size_norm", "hand_placement_pck", "wrist_pck", "elbow_pck", "joint_limits_ok",
            "no_body_penetration", "no_hand_penetration", "smooth_frames", "coverage"]
 
 
@@ -29,6 +30,7 @@ def main():
     ap.add_argument("--tag", default="current")
     ap.add_argument("--words", default=",".join(WORDS))
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--assembly", default="phrase", choices=["phrase", "stitch"])
     a = ap.parse_args()
     words = a.words.split(",")
     rng = random.Random(a.seed)
@@ -38,21 +40,28 @@ def main():
         phrases.append([rng.choice(words) for _ in range(k)])
     out = os.path.join(ROOT, "outputs", "eval", a.tag)
     os.makedirs(out, exist_ok=True)
-    paths = []
+    from .phrase import junction_continuity
+    paths, junction = [], {}
     for i, ph in enumerate(phrases):
-        seq = build_motion([dict(sign=w, url=f"{VIDEO_BASE}/{w}.mp4") for w in ph])
+        seq, info = build_motion([dict(sign=w, url=f"{VIDEO_BASE}/{w}.mp4") for w in ph],
+                                 assembly=a.assembly, return_info=True)
         p = os.path.join(out, f"p{i:02d}.npy")
         np.save(p, seq.astype(np.float32))
         paths.append(p)
+        if "segments" in info:
+            junction[f"p{i:02d}.npy"] = junction_continuity(seq, info["segments"])
     json.dump({f"p{i:02d}.npy": ph for i, ph in enumerate(phrases)}, open(os.path.join(out, "phrases.json"), "w"), indent=1)
     subprocess.run([os.path.join(ROOT, ".venv-blender", "bin", "python"), os.path.join(ROOT, "asl_v2", "evaluate.py"),
                     *paths, "--json", os.path.join(out, "results.json")], check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     res = json.load(open(os.path.join(out, "results.json")))
+    for k, v in junction.items():
+        res[k]["junction_continuity"] = v
+    json.dump(res, open(os.path.join(out, "results.json"), "w"), indent=1)
     lines = [f"# Consistency suite `{a.tag}`: {len(phrases)} phrases, "
              f"{sum(r['frames'] for r in res.values())} frames", "",
              "| metric | mean | worst phrase | phrases ≥ 95% |", "|---|---|---|---|"]
-    for m in TARGETS:
+    for m in TARGETS + (["junction_continuity"] if junction else []):
         v = np.array([r[m] for r in res.values() if r.get(m) is not None])
         lines.append(f"| {m} | {v.mean():.1f} | {v.min():.1f} | {(v >= 95).sum()}/{len(v)} |")
     open(os.path.join(out, "summary.md"), "w").write("\n".join(lines) + "\n")

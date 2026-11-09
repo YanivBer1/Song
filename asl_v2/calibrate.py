@@ -87,6 +87,25 @@ def measure():
         bone_heads_canon={k: canon(np.array([v[0], v[2]])) for k, v in bh.items()
                           if k.split("_")[0] in ("upperarm", "lowerarm", "hand", "middle", "index", "pinky", "head", "neck")},
     )
+    # The avatar's own relaxed hand (MakeHuman rest pose) as the motion's rest-hand template:
+    # 21 landmarks from bone heads/tails, canonical axes (x right, y down, z away), wrist at the
+    # origin, hand axis (wrist->middle knuckle) rotated onto +y, units of MP shoulder width.
+    bt = cam["bone_tails"]
+    lmap = {0: ("hand", "h")}
+    for fn, base in (("thumb", 1), ("index", 5), ("middle", 9), ("ring", 13), ("pinky", 17)):
+        lmap.update({base: (f"{fn}_01", "h"), base + 1: (f"{fn}_02", "h"), base + 2: (f"{fn}_03", "h"),
+                     base + 3: (f"{fn}_03", "t")})
+    for s in "lr":
+        pts = np.array([(bh if e == "h" else bt)[f"{b}_{s}"] for b, e in (lmap[i] for i in range(21))])
+        c = np.stack([pts[:, 0], -pts[:, 2], pts[:, 1]], 1)          # Blender -> canonical axes
+        c = (c - c[0]) / sw
+        a = c[9] / np.linalg.norm(c[9])                               # minimal 3D rotation: a -> +y
+        y = np.array([0.0, 1.0, 0.0])
+        v, cs = np.cross(a, y), float(a @ y)
+        K = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+        R = np.eye(3) + K + K @ K / (1 + cs)
+        c = c @ R.T
+        out[f"rest_hand_{s.upper()}"] = c.tolist()
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     json.dump(out, open(OUT, "w"), indent=1)
     up = np.linalg.norm(np.subtract(out["bone_heads_canon"]["lowerarm_l"], out["bone_heads_canon"]["upperarm_l"]))

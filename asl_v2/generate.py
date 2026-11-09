@@ -50,19 +50,42 @@ def tokens(text):
     return [t for t in (re.sub(r"[^\w\s]", "", tok).lower().strip() for tok in text.split()) if t]
 
 
-def tracked_keypoints(word, url=None):
-    """v3 tracking (crop-model hands with identity checks) in the keypoints() layout."""
+_PRIOR = None
+_FIT_CACHE = {}
+
+
+def tracked_keypoints(word, url=None, solver=True):
+    """v3 tracking (crop-model hands with identity checks) in the keypoints() layout,
+    plus the anatomical hand fit (asl_v2.kinematics) when solver=True."""
+    global _PRIOR
     from .track import track
     t = track(word, url)
-    return dict(pose=t["pose"], face=t["face"], lh=t["img_L"], rh=t["img_R"], size=t["size"], fps=t["fps"],
-                world_lh=t["world_L"], world_rh=t["world_R"])
+    kp = dict(pose=t["pose"], face=t["face"], lh=t["img_L"], rh=t["img_R"], size=t["size"], fps=t["fps"],
+              world_lh=t["world_L"], world_rh=t["world_R"])
+    if solver:
+        from . import kinematics as K
+        if word not in _FIT_CACHE:
+            if _PRIOR is None:
+                _PRIOR = K.load_prior()
+            _FIT_CACHE[word] = K.fit_track(t, prior=_PRIOR)
+        kp["fit"] = _FIT_CACHE[word]
+        kp["track"] = t
+    return kp
 
 
-def build_motion(matches, tracking="v3"):
+def build_motion(matches, tracking="v3", assembly="phrase", return_info=False):
+    """assembly='phrase': coarticulated (strokes joined from exactly where each sign ends,
+    velocity-continuous transitions); 'stitch': the earlier clip-level stitching."""
     from .extract import keypoints
     from .motion import process_clip, stitch
     get = tracked_keypoints if tracking == "v3" else keypoints
-    return stitch([process_clip(get(m["sign"], m["url"])) for m in matches])
+    if assembly == "phrase":
+        from .phrase import assemble
+        items = [process_clip(get(m["sign"], m["url"]), return_meta=True, trim=False) for m in matches]
+        seq, info = assemble(items)
+        return (seq, info) if return_info else seq
+    seq = stitch([process_clip(get(m["sign"], m["url"])) for m in matches])
+    return (seq, {"segments": stitch.last_segments}) if return_info else seq
 
 
 def main():

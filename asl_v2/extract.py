@@ -15,6 +15,7 @@ Arrays are in source-image pixels (z uses the same scale as x, per MediaPipe):
 """
 
 import os
+import subprocess
 import urllib.request
 
 import cv2
@@ -30,7 +31,10 @@ def clip_path(word, url=None):
     os.makedirs(CLIP_DIR, exist_ok=True)
     path = os.path.join(CLIP_DIR, f"{word}.mp4")
     if not os.path.exists(path):
-        urllib.request.urlretrieve(url or f"{VIDEO_BASE}/{word}.mp4", path)
+        # Python's default urllib client is refused by the CDN; curl (its own identity) works.
+        subprocess.run(["curl", "-sSfL", "--retry", "3", "-o", path + ".part", url or f"{VIDEO_BASE}/{word}.mp4"],
+                       check=True)
+        os.replace(path + ".part", path)
     return path
 
 

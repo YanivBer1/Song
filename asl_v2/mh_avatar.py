@@ -443,7 +443,7 @@ def to_dir(p):
     return np.stack([p[..., 0], p[..., 2] * ZS, -p[..., 1]], -1)
 
 
-def solve_arm(S, E_obs, T_obs, a, b):
+def solve_arm(S, E_obs, T_obs, a, b, z_bias=0.0):
     """Two-bone IK in canonical units (x right, y down, z towards camera < 0).
 
     MediaPipe's monocular depth for elbows/wrists is unreliable, so depth is
@@ -461,7 +461,7 @@ def solve_arm(S, E_obs, T_obs, a, b):
         z_t = min(z_t, -0.40)               # in front of chest / belly
     elif abs(x) < 0.55 and y <= -0.25:
         z_t = min(z_t, -0.50)               # in front of the face
-    T = np.array([x, y, z_t])
+    T = np.array([x, y, z_t + z_bias])
     u = T - S
     D = np.clip(np.linalg.norm(u), abs(a - b) + 1e-3, a + b - 1e-3)
     u /= np.linalg.norm(u)
@@ -501,6 +501,10 @@ class Retargeter:
         cal_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "avatar_calib.json")
         if os.path.exists(cal_path):
             self._load_calibration(json.load(open(cal_path)))
+        self.finger_bones = {f"{fn}_0{k}_{s}" for fn in ("thumb", "index", "middle", "ring", "pinky")
+                             for k in (1, 2, 3) for s in "lr"}
+        self.finger_len = {s: sum(rig.data.bones[f"{fn}_0{k}_{s}"].length for fn in ("index", "middle", "ring", "pinky")
+                                  for k in (1, 2, 3)) for s in "lr"}
         for pb in rig.pose.bones:
             pb.rotation_mode = "QUATERNION"
         # palm normals in hand-bone local space at rest (same formula as at runtime)
@@ -617,7 +621,8 @@ class Retargeter:
                 hd /= np.linalg.norm(hd) + 1e-9
                 hd2 = np.array([hd[0], -hd[2]])                     # its screen (x, y-down) component
                 T2 = T_mp - self.wrist_off[s] * hd2 + corr.get(s, 0.0)   # where the wrist *joint* must go
-                E, T = solve_arm(S2, np.array([*E2, 0.0]), np.array([*T2, 0.0]), *self.arm_len[s])
+                E, T = solve_arm(S2, np.array([*E2, 0.0]), np.array([*T2, 0.0]), *self.arm_len[s],
+                                 z_bias=float(np.clip(f[off, 2], -0.15, 0.15)))
                 self.last[s] = dict(wrist_mp_target=T_mp, elbow_target=E2, shoulder=S2, hand_dir2=hd2)
                 S3 = np.array([S2[0], S2[1], 0.0])
             else:
@@ -625,10 +630,24 @@ class Retargeter:
                 S3 = np.array([f[P + sh][0], f[P + sh][1], 0.0])
             arm_dirs = {f"upperarm_{s}": canon_dir(E - S3),
                         f"lowerarm_{s}": canon_dir(T - E)}
+            head_rel, tgt = {}, None
             for part in ORDER:
                 name = f"{part}_{s}"
                 a, b = CHAINS[name]
                 d = arm_dirs[name] if name in arm_dirs else to_dir(f[b]) - to_dir(f[a])
+                if tgt is not None and name in self.finger_bones and part.endswith("_01"):
+                    # Position-based finger retargeting: aim each bone from its *actual posed
+                    # head* at where the signer's next joint is inside the hand (anchored on the
+                    # knuckles, scaled by finger length). Absorbs differences in joint placement
+                    # (e.g. the thumb base) between the avatar's anatomy and MediaPipe's landmarks.
+                    par = self.parent[name]
+                    head_rel[name] = head_rel[par] + posed[par] @ self.rest[par][:3, :3].T @ (
+                        self.rest[name][:3, 3] - self.rest[par][:3, 3])
+                    d = tgt[b - off] - head_rel[name]
+                elif tgt is not None and name in self.finger_bones:
+                    par = self.parent[name]
+                    head_rel[name] = head_rel[par] + posed[par] @ self.rest[par][:3, :3].T @ (
+                        self.rest[name][:3, 3] - self.rest[par][:3, 3])
                 if np.linalg.norm(d) < 1e-6:
                     continue
                 d /= np.linalg.norm(d)
@@ -650,6 +669,17 @@ class Retargeter:
                         q1 = Matrix(R_full.tolist()).to_quaternion()
                         R_final = np.array(q0.slerp(q1, 0.5).to_matrix())
                 posed[name] = R_final
+                if part == "hand" and self.cal is not None:
+                    head_rel = {name: np.zeros(3)}
+                    knuckles = []
+                    for fb in ("index_01", "middle_01", "ring_01", "pinky_01"):
+                        bn = f"{fb}_{s}"
+                        knuckles.append(R_final @ self.rest[name][:3, :3].T @ (self.rest[bn][:3, 3] - self.rest[name][:3, 3]))
+                    D = to_dir(f[off:off + 21])
+                    data_len = sum(np.linalg.norm(D[base + k + 1] - D[base + k]) for base in (5, 9, 13, 17) for k in range(3))
+                    k_scale = self.finger_len[s] / (data_len + 1e-9)
+                    cD, cA = D[[5, 9, 13, 17]].mean(0), np.mean(knuckles, 0)
+                    tgt = cA + k_scale * (D - cD)
                 basis = RA.T @ R_final
                 rig.pose.bones[name].rotation_quaternion = Matrix(basis.tolist()).to_quaternion()
 

@@ -20,6 +20,9 @@ shoulder width, y down, z towards the camera is negative):
   [0:33] pose, [33:54] left hand, [54:75] right hand, [75:553] face mesh.
 """
 
+import json
+import os
+
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
@@ -64,16 +67,27 @@ def _rest_hand_left():
 
 REST_HAND = {"L": _rest_hand_left()}
 REST_HAND["R"] = REST_HAND["L"] * np.array([-1.0, 1.0, 1.0])
+# Prefer the avatar's own relaxed hand (measured by asl_v2/calibrate.py): natural by construction.
+_CAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "avatar_calib.json")
+if os.path.exists(_CAL):
+    _c = json.load(open(_CAL))
+    if "rest_hand_L" in _c:
+        REST_HAND = {"L": np.array(_c["rest_hand_L"]), "R": np.array(_c["rest_hand_R"])}
 
 
 def _orient(hand, direction):
-    """Rotate a hand template (fingers along +y) so it points along `direction` (xy)."""
-    d = direction[:2] / (np.linalg.norm(direction[:2]) + 1e-9)
-    c, s = d[1], -d[0]                               # rotation taking (0,1) to d
-    out = hand.copy()
-    out[:, 0] = c * hand[:, 0] - s * hand[:, 1]
-    out[:, 1] = s * hand[:, 0] + c * hand[:, 1]
-    return out
+    """Rotate a hand template (hand axis along +y) so it continues the forearm `direction`
+    in 3D (minimal rotation, so the palm keeps facing the thigh), with a slight relaxed
+    wrist flexion (~10 deg towards the palm side handled by the template itself)."""
+    d = np.asarray(direction, float)
+    d = d / (np.linalg.norm(d) + 1e-9)
+    y = np.array([0.0, 1.0, 0.0])
+    v, c = np.cross(y, d), float(y @ d)
+    if c < -0.999:
+        return hand * np.array([1.0, -1.0, -1.0])
+    K = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    R = np.eye(3) + K + K @ K / (1 + c)
+    return hand @ R.T
 
 
 def rest_arm(shoulder, sign):
@@ -165,7 +179,7 @@ def _smooth_weight(active, width):
 # --------------------------------------------------------------------------
 # Per-clip processing
 # --------------------------------------------------------------------------
-def process_clip(kp, return_offset=False):
+def process_clip(kp, return_offset=False, return_meta=False, trim=True):
     pose, W, H = kp["pose"].copy(), *kp["size"]
     T = len(pose)
     sh_l, sh_r = pose[:, 11, :3], pose[:, 12, :3]
@@ -207,6 +221,17 @@ def process_clip(kp, return_offset=False):
                     px_per_m = np.median(np.linalg.norm(i2, axis=(1, 2)) / (np.linalg.norm(w2, axis=(1, 2)) + 1e-9))
                     w_off = (world - world[:, :1]) * px_per_m / scale
                     hand_off = np.where(wv[:, None, None], w_off, hand_off)
+            fit = kp.get("fit", {}).get(side) if kp.get("fit") else None
+            if fit is not None:
+                # Anatomical fit (asl_v2.kinematics): constant bone lengths, joint limits,
+                # angle-space smoothing, stabilised handshapes. Camera axes == canonical axes.
+                from . import kinematics as K
+                J, _ = K.place_in_body_frame(fit, center[:2], scale, wrist_z=0.0)
+                good = fit["quality"] > 0.2
+                hand_off = np.where(good[:, None, None], J - J[:, :1], hand_off)
+                hand = hand.copy()
+                hand[:, 0, :2] = np.where(good[:, None], J[:, 0, :2], hand[:, 0, :2])
+                det = det | good
             hand_off, short = _fill(hand_off, det, MAX_GAP)
             wrist = np.where(det[:, None], hand[:, 0], body[:, w])
             # hand z is relative to its own wrist; anchor at the body wrist depth
@@ -235,6 +260,23 @@ def process_clip(kp, return_offset=False):
         out[:, off:off + 21] = wrist_f[:, None] + hand_f
         weights[side] = weight
 
+    # Hand-over-hand depth order: stored as a small z offset on each hand (canonical units,
+    # negative = towards the camera); the retargeter adds it to the IK wrist depth.
+    for off in (LH, RH):
+        out[:, off:off + 21, 2] -= out[:, off:off + 1, 2]          # wrist z := 0, fingers keep relative depth
+    if kp.get("fit") is not None and "track" in kp:
+        from . import kinematics as K
+        t = kp["track"]
+        JL, upm = K.place_in_body_frame(kp["fit"]["L"], center[:2], scale)
+        JR, _ = K.place_in_body_frame(kp["fit"]["R"], center[:2], scale)
+        over = (t["occl"] > 0) | K.image_overlap(JL, JR, upm)
+        front = np.asarray(K.front_hand_from_evidence(t["src_L"], t["src_R"], t["conf_L"], t["conf_R"], over))
+        for i in range(T):
+            if over[i] and front[i] != 0:                 # +1 right hand in front, -1 left
+                fo, bo = (RH, LH) if front[i] > 0 else (LH, RH)
+                out[i, fo:fo + 21, 2] -= 0.05
+                out[i, bo:bo + 21, 2] += 0.05
+
     face = norm(kp["face"])
     face_ok = ~np.isnan(face[:, 0, 0])
     if face_ok.any():
@@ -245,10 +287,12 @@ def process_clip(kp, return_offset=False):
 
     # Trim idle frames (no hand signing) at the start and end of the clip.
     busy = np.flatnonzero(np.maximum(weights["L"], weights["R"]) > 0.5)
-    start = 0
-    if len(busy):
-        start = max(busy[0] - 2, 0)
-        out = out[start: busy[-1] + 3]
+    start, end = 0, T
+    if trim and len(busy):
+        start, end = max(busy[0] - 2, 0), busy[-1] + 3
+        out = out[start:end]
+    if return_meta:
+        return out, dict(start=start, weight_L=weights["L"][start:end], weight_R=weights["R"][start:end])
     return (out, start) if return_offset else out
 
 
@@ -311,18 +355,23 @@ def stitch(clips, lead=10, hold=8, speed=1.2):
     for k in range(len(clips) - 1):
         i, j = best_cut(clips[k], clips[k + 1])
         clips[k], clips[k + 1] = clips[k][:i + 1], clips[k + 1][j:]
-    parts = []
+    parts, kinds = [], []
     start_rest = rest_frame(clips[0][0])
-    parts.append(np.repeat(start_rest[None], hold, axis=0))
+    parts.append(np.repeat(start_rest[None], hold, axis=0)); kinds.append("hold")
     prev = start_rest
     for clip in clips:
-        parts.append(_transition(prev, clip[0], _duration(prev, clip[0])))
-        parts.append(clip)
+        parts.append(_transition(prev, clip[0], _duration(prev, clip[0]))); kinds.append("transition")
+        parts.append(clip); kinds.append("stroke")
         prev = clip[-1]
     end_rest = rest_frame(prev)
-    parts.append(_transition(prev, end_rest, max(lead, _duration(prev, end_rest))))
-    parts.append(np.repeat(end_rest[None], hold, axis=0))
+    parts.append(_transition(prev, end_rest, max(lead, _duration(prev, end_rest)))); kinds.append("transition")
+    parts.append(np.repeat(end_rest[None], hold, axis=0)); kinds.append("hold")
     seq = np.concatenate(parts)
+    pos, segs = 0, []
+    for k, p_ in zip(kinds, parts):
+        segs.append((k, pos, pos + len(p_), -1))
+        pos += len(p_)
+    stitch.last_segments = segs
     seq[:, :LH] = gaussian_filter1d(seq[:, :LH], 1.2, axis=0, mode="nearest")
     seq[:, LH:FACE] = gaussian_filter1d(seq[:, LH:FACE], 0.9, axis=0, mode="nearest")
     seq[:, FACE:] = gaussian_filter1d(seq[:, FACE:], 1.0, axis=0, mode="nearest")
