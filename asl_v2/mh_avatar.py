@@ -750,7 +750,10 @@ class Retargeter:
         """Decide the depth reading of each hand for a whole sequence up front: score
         both readings on every frame, then median-filter the decision and remove runs
         shorter than `min_run`, so a hand never snaps orientation for a few frames."""
-        from scipy.ndimage import median_filter
+        def median_filter(x, size, mode=None):
+            h = size // 2
+            xp = np.pad(x, h, mode="edge")
+            return np.array([np.median(xp[i:i + size]) for i in range(len(x))])
         votes = {"l": [], "r": []}
         for f in seq:
             errs = {}
