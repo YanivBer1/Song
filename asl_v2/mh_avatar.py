@@ -753,6 +753,7 @@ class Retargeter:
         relationships survive differences in finger proportions."""
         if self.cal is None:
             return self._pose_once(f, {})
+        self.frame_t = getattr(self, "frame_t", -1) + 1
         if getattr(self, "disambiguate", True):
             f = self._choose_depth(f)
         corr = {"l": np.zeros(2), "r": np.zeros(2)}
@@ -802,6 +803,21 @@ class Retargeter:
                 return Rp @ (self.rest[par][:3, :3].T if par else np.eye(3)) @ R_rest
             return posed[par] @ self.rest[par][:3, :3].T @ R_rest
 
+        def set_world(name, R_world):
+            posed[name] = R_world
+            basis = chain_rest(name).T @ R_world
+            rig.pose.bones[name].rotation_quaternion = Matrix(basis.tolist()).to_quaternion()
+
+        def rot(axis, deg):
+            return np.array(Matrix.Rotation(np.radians(deg), 3, axis))
+
+        # Ambient life: slow breathing (chest pitch, ~0.25 Hz) and subtle postural sway, so the
+        # signer is never frozen, even in holds and pauses between sentences.
+        t = getattr(self, "frame_t", 0) / 30.0
+        set_world("spine_02", rot("Z", 0.5 * np.sin(2 * np.pi * t / 7.3)) @ rot("Y", 0.35 * np.sin(2 * np.pi * t / 9.1))
+                  @ chain_rest("spine_02"))
+        set_world("spine_03", rot("X", -0.6 * np.sin(2 * np.pi * t / 4.0)) @ chain_rest("spine_03"))
+
         for s in "lr":
             off = LH if s == "l" else RH
             sh, el = (11, 13) if s == "l" else (12, 14)
@@ -809,6 +825,19 @@ class Retargeter:
                 S2 = self.shoulder[s]
                 T_mp = self.warp(f[off], f)                       # MediaPipe-wrist target on the avatar
                 E2 = self.warp(f[P + el], f)
+                # Scapulohumeral rhythm: above ~60 deg of arm elevation the shoulder girdle
+                # rotates upward too (~1 deg per 2 deg of arm), so the shoulder rises naturally
+                # instead of the mesh pinching.
+                v = E2 - S2
+                elev = np.degrees(np.arccos(np.clip(v[1] / (np.linalg.norm(v) + 1e-9), -1, 1)))
+                clav = float(np.clip((elev - 60.0) / 3.0, 0.0, 22.0))
+                cname = f"clavicle_{s}"
+                R_c = rot("Y", -clav if s == "l" else clav)
+                set_world(cname, R_c @ chain_rest(cname))
+                if clav > 0:
+                    hc, hu = self.rest[cname][:3, 3], self.rest[f"upperarm_{s}"][:3, 3]
+                    moved = hc + R_c @ (hu - hc) - hu
+                    S2 = S2 + np.array([moved[0], -moved[2]]) / self.cal["mp_shoulder_width_m"]
                 hd = to_dir(f[off + 9]) - to_dir(f[off])           # 3D hand direction (Blender axes)
                 hd /= np.linalg.norm(hd) + 1e-9
                 hd2 = np.array([hd[0], -hd[2]])                     # its screen (x, y-down) component

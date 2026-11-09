@@ -7,6 +7,7 @@ motion, rendered with Cycles on CPU.
 """
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -92,6 +93,7 @@ def main():
     ap.add_argument("--hair", default="short02")
     ap.add_argument("--closeup", action="store_true", help="frame chest+hands (inspection)")
     ap.add_argument("--faceup", action="store_true", help="frame the face (inspection)")
+    ap.add_argument("--batch", help="JSON list of {motion, frames, prefix}: render stills for many motions")
     args = ap.parse_args()
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -112,8 +114,22 @@ def main():
         sens_h = cam.data.sensor_width * res[1] / res[0]
         cam.location = (0, -0.30 * cam.data.lens / sens_h, head_z + 0.035)
     retarget = mh_avatar.Retargeter(rig, objs)
-    seq = np.load(args.motion)
     sc = bpy.context.scene
+    if args.batch:
+        for job in json.load(open(args.batch)):
+            seq = np.load(job["motion"])
+            feats = [mh_avatar.face_features(f[mh_avatar.FACE:mh_avatar.FACE + 468, :2]) for f in seq]
+            neutral = mh_avatar.neutral_face(feats)
+            retarget.flip = {"l": False, "r": False}
+            for i in range(len(seq)):              # pose every frame: keeps temporal state honest
+                retarget.pose(seq[i])
+                if i in job["frames"]:
+                    retarget.set_expression(seq[i], neutral, objs)
+                    bpy.context.view_layer.update()
+                    sc.render.filepath = f"{job['prefix']}_{i:04d}.png"
+                    bpy.ops.render.render(write_still=True)
+        return
+    seq = np.load(args.motion)
     feats = [mh_avatar.face_features(f[mh_avatar.FACE:mh_avatar.FACE + 468, :2]) for f in seq]
     neutral = mh_avatar.neutral_face(feats)
 
