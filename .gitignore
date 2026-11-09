@@ -2,3 +2,7 @@
 gensim-data/
 __pycache__/
 .gradio/
+.venv-blender/
+third_party/
+cache/
+*.npy

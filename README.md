@@ -27,7 +27,31 @@ There is no generative video model. The pipeline is retrieval plus pose re-rende
 | Upload result to Cloudflare R2 | Skipped; the file stays local |
 | OpenCV `avc1` writer (falls back to `mp4v` with pip OpenCV) | Output re-encoded to H.264 with ffmpeg so browsers can play it |
 
-## Setup
+## v2: better motion + realistic avatar (`asl_v2/`)
+
+v2 fixes hands popping in and out, and adds a realistic human renderer.
+See [`docs/RESEARCH.md`](docs/RESEARCH.md) for the root-cause analysis, the
+survey of open-source alternatives and the design.
+
+- **Both hands are present in every frame.** A hand that isn't signing rests
+  relaxed at the side from the start. (In the source clips it hangs below the
+  frame, so the Space never drew it.)
+- **Consistent body.** MediaPipe Holistic tracking and per-clip normalization,
+  plus gap filling and eased, closest-frame transitions.
+- **Realistic renderer.** A CC0 MakeHuman character with a full finger rig,
+  driven by the sign keypoints (hand twist, IK arms with body contact) and
+  rendered in Blender Cycles on CPU.
+
+```bash
+scripts/setup_v2.sh                       # venvs, word2vec, MakeHuman CC0 assets
+.venv/bin/python -m asl_v2.generate "Hi, my name is John" -o outputs/v2/john_2d.mp4               # seconds
+.venv/bin/python -m asl_v2.generate "Hi, my name is John" --renderer human -o outputs/v2/john.mp4  # ~7 s/frame
+```
+
+The v2 outputs are in `outputs/v2/`: `*_2d.mp4` (illustrated) and
+`*_realistic.mp4` (MakeHuman avatar).
+
+## Setup (v1, the original Space)
 
 ```bash
 uv venv -p python3.11 .venv
