@@ -488,9 +488,28 @@ def _frame(y, n):
     return np.stack([np.cross(y, n), y, n], 1)        # columns: x, y, z
 
 
+def _seg_dist(p1, q1, p2, q2):
+    d1, d2, r = q1 - p1, q2 - p2, p1 - p2
+    a, e, f = d1 @ d1, d2 @ d2, d2 @ r
+    c, b = d1 @ r, d1 @ d2
+    den = a * e - b * b
+    s = np.clip((b * f - c * e) / den, 0, 1) if den > 1e-12 else 0.0
+    t = np.clip((b * s + f) / e, 0, 1) if e > 1e-12 else 0.0
+    s = np.clip((b * t - c) / a, 0, 1) if a > 1e-12 else 0.0
+    return float(np.linalg.norm((p1 + d1 * s) - (p2 + d2 * t)))
+
+
+# Hard human range of motion for the rig's finger bones (deg, rotation from rest):
+# MCP 95, PIP 110, DIP 90; thumb CMC 70, MCP 70, IP 85
+ROM = {"01": 95.0, "02": 110.0, "03": 90.0}
+ROM_THUMB = {"01": 70.0, "02": 70.0, "03": 85.0}
+
+
 class Retargeter:
-    def __init__(self, rig):
+    def __init__(self, rig, objs=None):
         self.rig = rig
+        self.objs = objs
+        self.collide = None
         self.rest = {b.name: np.array(b.matrix_local) for b in rig.data.bones}
         self.parent = {b.name: (b.parent.name if b.parent else None) for b in rig.data.bones}
         sw = np.linalg.norm(self.rest["upperarm_l"][:3, 3] - self.rest["upperarm_r"][:3, 3])
@@ -507,6 +526,8 @@ class Retargeter:
                                   for k in (1, 2, 3)) for s in "lr"}
         for pb in rig.pose.bones:
             pb.rotation_mode = "QUATERNION"
+        if objs is not None:
+            self._build_collision(objs)
         # palm normals in hand-bone local space at rest (same formula as at runtime)
         self.palm_local = {}
         for s in "lr":
@@ -515,6 +536,88 @@ class Retargeter:
             n = np.cross(p5 - p0, p17 - p0)
             self.palm_local[s] = h[:3, :3].T @ (n / np.linalg.norm(n))
             self.palm_local[f"fore_{s}"] = self.rest[f"lowerarm_{s}"][:3, :3].T @ (n / np.linalg.norm(n))
+
+    # ---------------- collision proxies: torso (static) + head (rigid with the head bone) -----------
+    def _build_collision(self, objs):
+        from mathutils.bvhtree import BVHTree
+        torso_names = ("pelvis", "spine", "clavicle", "thigh")
+        head_names = ("neck", "head")
+        tv, tp, hv, hp = [], [], [], []
+        head_rest_inv = Matrix(self.rest["head"].tolist()).inverted()
+        for key in ("body", "clothes", "hair"):
+            o = objs.get(key)
+            if o is None:
+                continue
+            gname = {g.index: g.name.split("_")[0] for g in o.vertex_groups}
+            dom = {}
+            for v in o.data.vertices:
+                if v.groups:
+                    g = max(v.groups, key=lambda x: x.weight)
+                    if g.weight > 0.5:
+                        dom[v.index] = gname.get(g.group)
+            mw = o.matrix_world
+            for poly in o.data.polygons:
+                kinds = {dom.get(i) for i in poly.vertices}
+                if kinds <= set(torso_names) and None not in kinds:
+                    base = len(tv)
+                    tv.extend(mw @ o.data.vertices[i].co for i in poly.vertices)
+                    tp.append(list(range(base, base + len(poly.vertices))))
+                elif kinds <= set(head_names) and None not in kinds:
+                    base = len(hv)
+                    hv.extend(head_rest_inv @ (mw @ o.data.vertices[i].co) for i in poly.vertices)
+                    hp.append(list(range(base, base + len(poly.vertices))))
+        self.collide = dict(torso=BVHTree.FromPolygons(tv, tp) if tp else None,
+                            head=BVHTree.FromPolygons(hv, hp) if hp else None)
+
+    def _hand_points_world(self, s):
+        pts = []
+        for fn in ("thumb", "index", "middle", "ring", "pinky"):
+            for k in ("02", "03"):
+                pb = self.rig.pose.bones[f"{fn}_{k}_{s}"]
+                pts.append(np.array(self.rig.matrix_world @ pb.head))
+            pts.append(np.array(self.rig.matrix_world @ self.rig.pose.bones[f"{fn}_03_{s}"].tail))
+        for fn in ("index", "middle", "ring", "pinky"):
+            pts.append(np.array(self.rig.matrix_world @ self.rig.pose.bones[f"{fn}_01_{s}"].head))
+        return np.array(pts)
+
+    def _body_penetration(self, s, margin=0.006):
+        """Deepest finger-joint penetration (m) into torso/head proxies (0 if none)."""
+        if self.collide is None:
+            return 0.0
+        worst = 0.0
+        pts = self._hand_points_world(s)
+        head_m = (self.rig.matrix_world @ self.rig.pose.bones["head"].matrix).inverted()
+        for p in pts:
+            for key, q in (("torso", p), ("head", np.array(head_m @ Vector(p)))):
+                bvh = self.collide[key]
+                if bvh is None:
+                    continue
+                loc, nrm, _, dist = bvh.find_nearest(Vector(q))
+                if loc is None or dist > 0.12:
+                    continue
+                d = float(np.dot(np.array(q) - np.array(loc), np.array(nrm)))
+                if d < margin:
+                    worst = max(worst, margin - d)
+        return worst
+
+    def _hand_hand_overlap(self, r_finger=0.0085):
+        """How far (m) the two hands' finger capsules interpenetrate (0 if apart)."""
+        segs = [(0, 1), (1, 2), (2, 3), (3, 4), (5, 6), (6, 7), (7, 8), (9, 10), (10, 11), (11, 12),
+                (13, 14), (14, 15), (15, 16), (17, 18), (18, 19), (19, 20), (0, 5), (0, 17), (5, 17), (0, 9)]
+        if Retargeter.LMAP21 is None:
+            self._hand_screen("l")
+        H = {}
+        for s in "lr":
+            m = Retargeter.LMAP21
+            H[s] = np.array([np.array(self.rig.matrix_world @ (self.rig.pose.bones[f"{b}_{s}"].head if e == "head"
+                                                                else self.rig.pose.bones[f"{b}_{s}"].tail))
+                             for b, e in (m[i] for i in range(21))])
+        worst = 0.0
+        for a, b in segs:
+            for c, d in segs:
+                dd = _seg_dist(H["l"][a], H["l"][b], H["r"][c], H["r"][d])
+                worst = max(worst, 2 * r_finger - dd)
+        return worst
 
     # ---------------- calibration (avatar measured with MediaPipe, see calibrate.py) -------------
     FACE_ANCHORS = (1, 152, 13, 14, 10, 234, 454, 33, 263, 61, 291, 199)
@@ -577,6 +680,72 @@ class Retargeter:
                     kb[unit].value = val
         return w
 
+    LMAP21 = None
+
+    def _hand_screen(self, s):
+        """Avatar's 21 hand joints of side s in calibrated canonical screen coords."""
+        if Retargeter.LMAP21 is None:
+            m = {0: ("hand", "head")}
+            for fn, base in (("thumb", 1), ("index", 5), ("middle", 9), ("ring", 13), ("pinky", 17)):
+                m.update({base: (f"{fn}_01", "head"), base + 1: (f"{fn}_02", "head"),
+                          base + 2: (f"{fn}_03", "head"), base + 3: (f"{fn}_03", "tail")})
+            Retargeter.LMAP21 = m
+        cal = self.cal
+        sw, mx, mz = cal["mp_shoulder_width_m"], cal["mp_mid_world_xz"][0], cal["mp_mid_world_xz"][1]
+        out = np.zeros((21, 2))
+        for i, (bone, end) in Retargeter.LMAP21.items():
+            pb = self.rig.pose.bones[f"{bone}_{s}"]
+            p = self.rig.matrix_world @ (pb.head if end == "head" else pb.tail)
+            out[i] = ((p[0] - mx) / sw, -(p[2] - mz) / sw)
+        return out
+
+    @staticmethod
+    def _shape_err(a, b):
+        vis = [2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16, 18, 19, 20]
+        ka, kb = a[[5, 9, 13, 17]].mean(0), b[[5, 9, 13, 17]].mean(0)
+        ca, cb = a[vis] - ka, b[vis] - kb
+        ca /= np.sqrt((ca ** 2).sum(1).mean()) + 1e-9
+        cb /= np.sqrt((cb ** 2).sum(1).mean()) + 1e-9
+        return float(np.sqrt(((ca - cb) ** 2).sum(1).mean()))
+
+    @staticmethod
+    def _mirror_depth(f, off):
+        g = f.copy()
+        z0 = g[off, 2]
+        g[off:off + 21, 2] = 2 * z0 - g[off:off + 21, 2]
+        return g
+
+    def _choose_depth(self, f):
+        """Analysis-by-synthesis depth disambiguation: a monocular hand and its depth-mirror
+        project identically; pose the avatar with both and keep the one whose *rendered*
+        hand matches the signer's 2D landmarks best (hysteresis against flicker)."""
+        if not hasattr(self, "flip"):
+            self.flip = {"l": False, "r": False}
+        errs = {}
+        for flip_l in (False, True):
+            for flip_r in (False, True):
+                g = f
+                if flip_l:
+                    g = self._mirror_depth(g, LH)
+                if flip_r:
+                    g = self._mirror_depth(g, RH)
+                self._pose_once(g, {})
+                bpy.context.view_layer.update()
+                errs[(flip_l, flip_r)] = {s: self._shape_err(self._hand_screen(s), f[off:off + 21, :2])
+                                          for s, off in (("l", LH), ("r", RH))}
+        for s, idx in (("l", 0), ("r", 1)):
+            cur = self.flip[s]
+            e_cur = min(v[s] for k, v in errs.items() if k[idx] == cur)
+            e_alt = min(v[s] for k, v in errs.items() if k[idx] != cur)
+            if e_alt < 0.8 * e_cur:
+                self.flip[s] = not cur
+        g = f
+        if self.flip["l"]:
+            g = self._mirror_depth(g, LH)
+        if self.flip["r"]:
+            g = self._mirror_depth(g, RH)
+        return g
+
     def pose(self, f, iters=2):
         """Retarget one frame. With calibration, a closed-loop end-effector correction
         moves each wrist target until the avatar's knuckles+fingertips land where the
@@ -584,18 +753,41 @@ class Retargeter:
         relationships survive differences in finger proportions."""
         if self.cal is None:
             return self._pose_once(f, {})
+        if getattr(self, "disambiguate", True):
+            f = self._choose_depth(f)
         corr = {"l": np.zeros(2), "r": np.zeros(2)}
         idx = list(self.EFFECTOR)
+        zx = {"l": 0.0, "r": 0.0}
         for it in range(iters + 1):
-            self._pose_once(f, corr)
+            self._pose_once(f, corr, zx)
             if it == iters:
                 break
             bpy.context.view_layer.update()
             for s, off in (("l", LH), ("r", RH)):
                 tgt = np.mean([self.warp(f[off + i], f) for i in idx], 0)
                 corr[s] = corr[s] + np.clip(tgt - self._effector_screen(s), -0.15, 0.15)
+        # Contact without penetration: push hands out of the body / apart from each other
+        # along the camera depth axis (the axis a monocular source can't pin down).
+        sw = self.cal["mp_shoulder_width_m"]
+        for _ in range(4):
+            bpy.context.view_layer.update()
+            moved = False
+            for s in "lr":
+                pen = self._body_penetration(s)
+                if pen > 0:
+                    zx[s] -= (pen + 0.004) / sw
+                    moved = True
+            ov = self._hand_hand_overlap()
+            if ov > 0:
+                front = "l" if f[LH, 2] < f[RH, 2] - 1e-6 else "r"
+                zx[front] -= (ov + 0.003) / sw
+                moved = True
+            if not moved:
+                break
+            self._pose_once(f, corr, zx)
 
-    def _pose_once(self, f, corr):
+    def _pose_once(self, f, corr, zx=None):
+        zx = zx or {}
         rig = self.rig
         posed = {}
 
@@ -622,7 +814,7 @@ class Retargeter:
                 hd2 = np.array([hd[0], -hd[2]])                     # its screen (x, y-down) component
                 T2 = T_mp - self.wrist_off[s] * hd2 + corr.get(s, 0.0)   # where the wrist *joint* must go
                 E, T = solve_arm(S2, np.array([*E2, 0.0]), np.array([*T2, 0.0]), *self.arm_len[s],
-                                 z_bias=float(np.clip(f[off, 2], -0.15, 0.15)))
+                                 z_bias=float(np.clip(f[off, 2], -0.15, 0.15)) + zx.get(s, 0.0))
                 self.last[s] = dict(wrist_mp_target=T_mp, elbow_target=E2, shoulder=S2, hand_dir2=hd2)
                 S3 = np.array([S2[0], S2[1], 0.0])
             else:
@@ -681,7 +873,14 @@ class Retargeter:
                     cD, cA = D[[5, 9, 13, 17]].mean(0), np.mean(knuckles, 0)
                     tgt = cA + k_scale * (D - cD)
                 basis = RA.T @ R_final
-                rig.pose.bones[name].rotation_quaternion = Matrix(basis.tolist()).to_quaternion()
+                qb = Matrix(basis.tolist()).to_quaternion()
+                if name in self.finger_bones:
+                    fn, k = part.split("_")
+                    lim = np.radians((ROM_THUMB if fn == "thumb" else ROM)[k])
+                    if qb.angle > lim:                       # clamp to human range of motion
+                        qb = Quaternion().slerp(qb, lim / qb.angle)
+                        posed[name] = RA @ np.array(qb.to_matrix())
+                rig.pose.bones[name].rotation_quaternion = qb
 
         # head orientation from the face mesh
         face = to_dir(f[FACE:FACE + 468])

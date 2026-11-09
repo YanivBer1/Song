@@ -40,7 +40,7 @@ def main():
         phrases.append([rng.choice(words) for _ in range(k)])
     out = os.path.join(ROOT, "outputs", "eval", a.tag)
     os.makedirs(out, exist_ok=True)
-    from .phrase import junction_continuity
+    from .phrase import junction_continuity, junction_no_freeze
     paths, junction = [], {}
     for i, ph in enumerate(phrases):
         seq, info = build_motion([dict(sign=w, url=f"{VIDEO_BASE}/{w}.mp4") for w in ph],
@@ -49,19 +49,21 @@ def main():
         np.save(p, seq.astype(np.float32))
         paths.append(p)
         if "segments" in info:
-            junction[f"p{i:02d}.npy"] = junction_continuity(seq, info["segments"])
+            junction[f"p{i:02d}.npy"] = (junction_continuity(seq, info["segments"]),
+                                         junction_no_freeze(seq, info["segments"], static=info.get("static")))
     json.dump({f"p{i:02d}.npy": ph for i, ph in enumerate(phrases)}, open(os.path.join(out, "phrases.json"), "w"), indent=1)
     subprocess.run([os.path.join(ROOT, ".venv-blender", "bin", "python"), os.path.join(ROOT, "asl_v2", "evaluate.py"),
                     *paths, "--json", os.path.join(out, "results.json")], check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     res = json.load(open(os.path.join(out, "results.json")))
-    for k, v in junction.items():
-        res[k]["junction_continuity"] = v
+    for k, (jc, fl) in junction.items():
+        res[k]["junction_continuity"] = jc
+        res[k]["junction_no_freeze"] = fl
     json.dump(res, open(os.path.join(out, "results.json"), "w"), indent=1)
     lines = [f"# Consistency suite `{a.tag}`: {len(phrases)} phrases, "
              f"{sum(r['frames'] for r in res.values())} frames", "",
              "| metric | mean | worst phrase | phrases ≥ 95% |", "|---|---|---|---|"]
-    for m in TARGETS + (["junction_continuity"] if junction else []):
+    for m in TARGETS + (["junction_continuity", "junction_no_freeze"] if junction else []):
         v = np.array([r[m] for r in res.values() if r.get(m) is not None])
         lines.append(f"| {m} | {v.mean():.1f} | {v.min():.1f} | {(v >= 95).sum()}/{len(v)} |")
     open(os.path.join(out, "summary.md"), "w").write("\n".join(lines) + "\n")

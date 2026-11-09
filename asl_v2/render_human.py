@@ -111,7 +111,7 @@ def main():
         head_z = np.array(rig.data.bones["head"].head_local)[2]
         sens_h = cam.data.sensor_width * res[1] / res[0]
         cam.location = (0, -0.30 * cam.data.lens / sens_h, head_z + 0.035)
-    retarget = mh_avatar.Retargeter(rig)
+    retarget = mh_avatar.Retargeter(rig, objs)
     seq = np.load(args.motion)
     sc = bpy.context.scene
     feats = [mh_avatar.face_features(f[mh_avatar.FACE:mh_avatar.FACE + 468, :2]) for f in seq]

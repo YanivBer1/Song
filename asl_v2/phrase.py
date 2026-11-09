@@ -75,13 +75,23 @@ def segment_phases(clip, meta):
     peak = v[start:end + 1].max() if end > start else 0.0
     if peak < 0.012:                          # static sign (number, letter): the hold IS the sign
         mid = (start + end) // 2
-        return max(start, mid - 7), min(end, mid + 7), active
+        active["static"] = True
+        return max(start, mid - 3), min(end, mid + 3), active   # ~0.23 s hold
     still = v < 0.18 * peak
     keep = 2
     while start < end - 10 and still[start + keep]:
         start += 1
     while end > start + 10 and still[end - keep]:
         end -= 1
+    # Coarticulation / target undershoot: fluent signers start the next movement while
+    # the hand is still moving, so drop the citation form's final deceleration and
+    # initial acceleration (speed < 25% of the sign's peak, at most 8 frames each).
+    slow = v < 0.25 * peak
+    for _ in range(8):
+        if end - start > 12 and slow[end]:
+            end -= 1
+        if end - start > 12 and slow[start]:
+            start += 1
     return start, end, active
 
 
@@ -145,16 +155,18 @@ def transition_frames(a, b):
 def assemble(items, hold=8, speed=SPEED):
     """items: list of (processed_untrimmed_clip, meta) per word, in phrase order.
     Returns (seq, info) with info['segments'] = [(kind, start, end, word_index)]."""
-    strokes, actives = [], []
+    strokes, actives, static = [], [], []
     for clip, meta in items:
         s0, s1, act = segment_phases(clip, meta)
         strokes.append(retime(clip[s0:s1 + 1], speed))
         actives.append(act)
+        static.append(bool(act.get("static")))
 
     # weak-hand hover across short idle gaps
     for i in range(1, len(strokes) - 1):
         for side in "LR":
-            if not actives[i][side] and actives[i - 1][side] and actives[i + 1][side] and len(strokes[i]) <= HOVER_MAX:
+            if (not actives[i].get(side) and actives[i - 1].get(side) and actives[i + 1].get(side)
+                    and len(strokes[i]) <= HOVER_MAX):
                 st = strokes[i].copy()
                 for t in range(len(st)):
                     _set_side(st[t], side, *_hover_part(st[t], side))
@@ -189,7 +201,7 @@ def assemble(items, hold=8, speed=SPEED):
     seq[:, :LH] = gaussian_filter1d(seq[:, :LH], 1.0, axis=0, mode="nearest")
     seq[:, LH:FACE] = gaussian_filter1d(seq[:, LH:FACE], 0.7, axis=0, mode="nearest")
     seq[:, FACE:] = gaussian_filter1d(seq[:, FACE:], 1.0, axis=0, mode="nearest")
-    return seq, {"segments": segs, "strokes": [len(s) for s in strokes]}
+    return seq, {"segments": segs, "strokes": [len(s) for s in strokes], "static": static}
 
 
 def junction_continuity(seq, segments, k=1.5):
@@ -214,3 +226,49 @@ def junction_continuity(seq, segments, k=1.5):
                 ok += acc[j - 1:j + 2].max() <= thr
                 n += 1
     return 100.0 * ok / max(n, 1)
+
+
+def transition_flow(seq, segments, min_ratio=0.15):
+    """% of word->word transitions (rest lead-in/out excluded) in which the moving hand
+    never comes to a stop: the slowest wrist speed across the junction window
+    (3 frames before -> 3 after the transition) stays >= min_ratio (15%) x that transition's
+    peak speed. Clip-by-clip stitching (hold, stop, go) fails this; fluent
+    coarticulated signing passes."""
+    w = np.stack([seq[:, LH], seq[:, RH]], 1)
+    v = np.zeros((len(seq), 2))
+    v[1:] = np.linalg.norm(np.diff(w, axis=0), axis=2)
+    ok, n = 0, 0
+    trans = [(a, b) for kind, a, b, _ in segments if kind == "transition"]
+    for a, b in trans[1:-1]:                      # skip rest -> first sign and last sign -> rest
+        lo, hi = max(a - 3, 1), min(b + 3, len(seq) - 1)
+        hand = int(np.argmax(v[a:b].max(0))) if b > a else 1
+        peak = v[a:b, hand].max() if b > a else 0
+        if peak < 0.01:                           # no real movement needed between the signs
+            ok += 1
+        else:
+            ok += v[lo:hi, hand].min() >= min_ratio * peak
+        n += 1
+    return 100.0 * ok / max(n, 1)
+
+
+def junction_no_freeze(seq, segments, still=0.004, run=4, static=None):
+    """% of word->word junctions with no visible freeze: no run of >= `run` consecutive
+    frames where both wrists are essentially motionless (speed < `still` shoulder
+    widths/frame ~ 1.4 mm/frame) within the window from 6 frames before the
+    transition to 6 frames after it. Contact signs may decelerate onto the body;
+    what reads as stop-and-go is the hand sitting frozen between words."""
+    w = np.stack([seq[:, LH], seq[:, RH]], 1)
+    v = np.zeros(len(seq))
+    v[1:] = np.linalg.norm(np.diff(w, axis=0), axis=2).max(1)
+    trans = [(a, b, wi) for kind, a, b, wi in segments if kind == "transition"][1:-1]
+    if static is not None:   # a static sign's brief hold is its content, not a freeze
+        trans = [(a, b, wi) for a, b, wi in trans if not (static[wi] or static[wi - 1])]
+    ok = 0
+    for a, b, _ in trans:
+        lo, hi = max(a - 6, 1), min(b + 6, len(seq))
+        frozen, longest = 0, 0
+        for x in v[lo:hi] < still:
+            frozen = frozen + 1 if x else 0
+            longest = max(longest, frozen)
+        ok += longest < run
+    return 100.0 * ok / max(len(trans), 1)
