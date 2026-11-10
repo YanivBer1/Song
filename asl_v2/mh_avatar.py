@@ -420,6 +420,7 @@ def neutral_face(feats):
     return out
 
 
+MOUTH_GAIN = float(os.environ.get("ASL_MOUTH", 0.25))
 SMILE0 = float(os.environ.get("ASL_SMILE", 0.8))      # resting corner-puller: lower values read as a frown on this face
 
 
@@ -429,7 +430,7 @@ def expression_weights(feat, neutral):
         "mouth-open": c((feat["open"] - neutral["open"]) / 0.10),
         # baseline: MakeHuman's resting mouth reads as a frown; interpreters keep a
         # relaxed, pleasant neutral face
-        "mouth-corner-puller": c(SMILE0 + (feat["width"] - neutral["width"]) / 0.07),
+        "mouth-corner-puller": c(SMILE0 + 0.3 * (feat["width"] - neutral["width"]) / 0.07),
         "mouth-pursing": c((neutral["width"] - feat["width"]) / 0.07),
     }
     for s, side in (("l", "left"), ("r", "right")):
@@ -948,6 +949,7 @@ class Retargeter:
         self.head_bias = np.stack([means[int(np.argmin(np.abs(mid - t)))] if not any(a <= t < b for a, b in strokes)
                                    else means[next(i for i, (a, b) in enumerate(strokes) if a <= t < b)]
                                    for t in range(T)])
+        self.head_bias[hold] = Rf[hold]                    # resting between sentences: head upright
         rig = self.rig
         names = [pb.name for pb in rig.pose.bones]
         corr = np.zeros((T, 2, 2))
@@ -1160,7 +1162,9 @@ class Retargeter:
                 kr = kl.replace("-left-", "-right-")
                 m = (W[:, keys.index(kl)] + W[:, keys.index(kr)]) / 2
                 W[:, keys.index(kl)] = W[:, keys.index(kr)] = m
-            gain = {"mouth-open": 0.55, "mouth-pursing": 0.4, "mouth-corner-puller": 1.0}
+            # Mouth: the signer's mouthing is tracked coarsely, and on this face an open mouth
+            # together with raised corners reads as a grimace. Keep the mouth movement subtle.
+            gain = {"mouth-open": MOUTH_GAIN, "mouth-pursing": 0.3, "mouth-corner-puller": 1.0}
             for k in keys:
                 g = gain.get(k, 0.7 if k.startswith("eyebrows") else 0.6)
                 W[:, keys.index(k)] *= g
