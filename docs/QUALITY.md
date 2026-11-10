@@ -1,0 +1,111 @@
+# v3 pipeline: method, audits and measured quality
+
+These are research notes for the realistic ASL avatar pipeline in `asl_v2/`. Every
+number below is produced by scripts in the repository and can be regenerated.
+
+## Pipeline
+
+1. **Tracking, frame by frame** (`track.py`)
+   - MediaPipe Holistic gives body, face and coarse hands.
+   - Each hand then gets a second pass: MediaPipe HandLandmarker runs on a crop around
+     the wrist, upscaled to 256 px. This gives metric 3D finger landmarks.
+   - If the hand isn't found, the crop is retried rotated 90°, 180° and 270°.
+     Downward-pointing hands are often only found this way.
+   - A per-frame identity check stops a crop from locking onto the other hand.
+2. **Anatomical hand solver** (`kinematics.py`, built with Fable 5.2)
+   - Constant bone lengths and published range-of-motion limits.
+   - Smoothing and gap filling are done in joint-angle space, with handshapes held
+     steady inside a sign.
+   - Two-hand symmetry, plus a PCA prior trained on 22.5k ASL Citizen hand poses.
+3. **Motion per sign** (`motion.py`)
+   - Normalisation and a resting non-signing hand.
+   - Hampel filtering removes one-frame glitches in wrist, elbow and hand shape.
+   - **Hold, don't drop:** if a hand's tracking is lost while the wrist stays in
+     signing space, the hand keeps its last shape.
+   - **Battison's Symmetry Condition:** a hand that is never tracked but is clearly
+     signing takes the mirror of the other hand's shape.
+4. **Phrase assembly** (`phrase.py`)
+   - Each sign is segmented into preparation, stroke and retraction. Signing space is
+     defined anatomically (wrist above the belt line).
+   - Citation holds are shortened, and the slow approach and departure of moving signs
+     are trimmed (target undershoot).
+   - Clips cut off mid-movement get a short settle with decaying velocity.
+   - Each sign continues from exactly where the previous stroke ended, along a quintic
+     Hermite curve that matches both position and velocity.
+   - The next handshape forms during the movement (anticipatory), and the hand rotates
+     with slerp rather than blending points.
+   - An idle weak hand hovers in a ready position between two signs that use it.
+   - A transition depends only on the boundary states of the two signs, so any word
+     order works.
+5. **Retargeting onto a CC0 MakeHuman character** (`mh_avatar.py`)
+   - **Calibration:** MediaPipe is run on a render of the avatar, and a body-relative
+     warp maps the signer's landmarks onto the avatar's (`calibrate.py`).
+   - **Arms:** two-bone IK with depth recovered from bone lengths. A closed-loop
+     end-effector correction moves each hand to its target.
+   - **Shoulders:** scapulohumeral rhythm (the collarbone rises with arm elevation).
+   - **Fingers:** the first bone of each finger is aimed by position, the other two by
+     direction. Range of motion is clamped hard.
+   - **Depth ambiguity** (a hand versus its depth mirror) is resolved by
+     analysis-by-synthesis, then median-filtered over the whole sequence.
+   - **Collisions:** fingers and forearms are pushed out of the torso and head. Hands
+     that should touch are brought into contact, and hands that interpenetrate are
+     separated.
+   - **Face:** FACS-style expression units, driven by the signer's face.
+   - **Ambient life:** breathing and postural sway.
+6. **Rendering**: Blender Cycles, 1280×720, 50 mm interpreter-style camera
+   (`render_human.py`).
+
+## Audits
+
+- **All word orders** (`audit_pairs.py`): every ordered pair of the 99 tracked signs
+  (9,801 junctions) is assembled exactly as inside a sentence.
+- **Avatar suite** (`evaluate.py`, `eval_suite.py`): 24 random phrases (2 to 6 signs)
+  are posed on the real rig and measured. Includes body-mesh and hand capsule
+  collision tests.
+- **Visual QA**: three Fable 5.2 reviewers compared source and avatar side by side on
+  396 frames (4 per sign, 99 signs). Their findings drove the fixes listed above.
+
+## Results (latest run)
+
+### All 9,801 word orders
+
+| | |
+|---|---|
+| Clean junctions | **99.93%** |
+| Freezes | 0 |
+| Velocity jumps | 0 |
+| Path loops | 0 |
+| Brief handshape spikes | 7 (0.07%) |
+| Median transition | 300 ms |
+
+### Avatar suite
+
+Avatar suite `final_v6`: 24 phrases, 4,227 frames.
+
+| metric | mean |
+|---|---|
+| junction velocity continuity | **100.0** |
+| junction without freeze | **100.0** |
+| hand placement | **100.0** |
+| coverage (both hands always present) | **100.0** |
+| finger joints within human range | **100.0** |
+| no finger/forearm inside body | **99.6** |
+| no hand-through-hand | 96.6 |
+| smooth (no velocity spikes) | 94.3 |
+| elbow direction | 93.2 |
+| handshape, size-normalised (all frames) | 88.1 |
+| **handshape on signing frames** (15 visible joints) | **83.6** |
+
+## What limits the handshape score
+
+The remaining error is 3D hand reconstruction from hands only about 50 px tall in the
+source video:
+
+- **Fists:** S, A and E fists render too loose. Applying measured angles directly to
+  the hinge joints over-curled, so that mode is off by default.
+- **Palm-up base hands:** a palm seen edge-on is ambiguous in depth, so it can flip.
+- **Fingers pointing at the camera:** the tracked shape collapses when a finger points
+  straight at the lens.
+- **Most promising next step:** WiLoR or HaMeR (transformer hand-mesh models, used for
+  research only) on the hardest frames. Installing them was blocked by the session's
+  permission policy.

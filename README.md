@@ -51,6 +51,21 @@ scripts/setup_v2.sh                       # venvs, word2vec, MakeHuman CC0 asset
 The v2 outputs are in `outputs/v2/`: `*_2d.mp4` (illustrated) and
 `*_realistic.mp4` (MakeHuman avatar).
 
+## v3: frame-by-frame tracking, anatomical solver, seamless phrases
+
+See [`docs/QUALITY.md`](docs/QUALITY.md) for the method, the audits and the measured
+results. In short:
+
+- **Word orders:** 99.93% of all 9,801 ordered sign pairs join without a freeze,
+  velocity jump or loop.
+- **Joins and anatomy:** 100% velocity-continuous, freeze-free joins; 100% of finger
+  joints within human range.
+- **Contact and coverage:** 99.6% of frames have no hand inside the body, and 100% of
+  hands are on target.
+- **Handshape:** 83.6% on signing frames. This is the remaining gap.
+
+The per-frame analysis of every source frame is in [`docs/analysis/`](docs/analysis/).
+
 ## Setup (v1, the original Space)
 
 ```bash
