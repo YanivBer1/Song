@@ -11,3 +11,6 @@ outputs/eval/
 outputs/audit/
 outputs/**/*.fit.npz
 outputs/**/*.segments.json
+asl_v2/models/wilor/
+.venv-wilor/
+cache/
