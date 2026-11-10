@@ -117,6 +117,22 @@ def tracked_keypoints(word, url=None, solver=True):
     fu = fused(t)                          # per-frame temporally consistent choice of the two
     kp = dict(pose=t["pose"], face=t["face"], lh=fu["img_L"], rh=fu["img_R"], size=t["size"], fps=t["fps"],
               world_lh=t["world_L"], world_rh=t["world_R"], noz_lh=fu["noz_L"], noz_rh=fu["noz_R"])
+    # 3D hand-mesh reading (WiLoR, asl_v2/track_wilor.py) where it exists and passed its 2D
+    # agreement gate: x, y and a usable depth from one consistent 3D hand.
+    here = os.path.dirname(os.path.abspath(__file__))
+    wp = next((q for q in (os.path.join(os.path.dirname(here), "cache", "wilor", f"{word}.npz"),
+                           os.path.join(here, "data", "wilor", f"{word}.npz")) if os.path.exists(q)), None)
+    if wp and os.environ.get("ASL_WILOR", "1") == "1":
+        wl = np.load(wp)
+        T = len(t["pose"])
+        for s, key in (("L", "lh"), ("R", "rh")):
+            ok = np.zeros(T, bool)
+            n = min(T, len(wl[f"wlok_{s}"]))
+            ok[:n] = wl[f"wlok_{s}"][:n] & ~np.isnan(wl[f"wl_{s}"][:n, 0, 0])
+            hand = kp[key].copy()
+            hand[ok] = wl[f"wl_{s}"][:T][ok[:n]] if n == T else wl[f"wl_{s}"][:n][ok[:n]]
+            kp[key], kp["zok_" + key] = hand, ok
+            kp["noz_" + key] = kp["noz_" + key] & ~ok
     if solver:
         from . import kinematics as K
         if word not in _FIT_CACHE:

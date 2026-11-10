@@ -31,6 +31,7 @@ IDX = np.array([2, 3, 4] + list(range(5, 21)))
 W2D = np.ones(len(IDX))
 W2D[np.isin(IDX, [4, 8, 12, 16, 20])] = 1.3
 WZ, WT_ANG, WT_ROT, WREG, WWRIST = 0.30, 0.03, 0.06, 0.004, 0.7
+WZ3D = float(os.environ.get("ASL_WZ3D", 0.8))             # depth weight on frames with a 3D-model reading
 
 EURO_FC, EURO_BETA = 1.5, 1.0                              # input de-jitter (One-Euro)
 PASSES, SIG_TRAJ, PULL, SIG_FINAL = 1, 2.0, 10.0, 0.6     # trajectory smoother (see _fit_side)
@@ -163,13 +164,15 @@ class Hand:
         L[2] = _rz(s[2] * t[5])
         return L
 
-    def solve(self, T, R_init, x_prev, R_prev, ts=1.0, arm=None):
+    def solve(self, T, R_init, x_prev, R_prev, ts=1.0, arm=None, z3d=False):
         """T: (21,3) target landmarks in Blender axes (any scale, any origin)."""
         data_len = sum(np.linalg.norm(T[b + k + 1] - T[b + k]) for b in (5, 9, 13, 17) for k in range(3))
         k = self.finger_len / (data_len + 1e-9)
         Tn = k * (T - T[KNUCK].mean(0)) / self.hand_len
         # a (nearly) flat depth profile means "no depth evidence" for this frame
         wz = WZ * float(np.clip((np.ptp(Tn[:, 1]) - 0.05) / 0.10, 0.0, 1.0))
+        if z3d:                       # depth from a 3D hand-mesh model: trust it
+            wz = WZ3D
 
         pri = _prior()
 
@@ -325,6 +328,7 @@ def one_euro(x, fps=30.0, min_cutoff=1.5, beta=1.0, d_cutoff=1.0):
 def _fit_side(args):
     side, targets, mask = args[:3]
     arms = args[3] if len(args) > 3 else None
+    z3d = (args[4] > 0.5) if len(args) > 4 else np.zeros(len(targets), bool)
     hand = _load()[side]
     T = len(targets)
     # de-jitter the tracked hand shape (hand-length units) block by block before fitting
@@ -361,19 +365,28 @@ def _fit_side(args):
         arm = arms[t] if arms is not None else None
         cands = []
         mirror = tg * np.array([1.0, -1.0, 1.0])
-        if R_prev is not None:
-            # The depth SIGN of a tracked hand is unreliable frame to frame (a hand and its
-            # depth mirror look the same in the image). Fit both readings from the previous
-            # pose; the temporal term then keeps the one that continues the motion.
-            cands.append(hand.solve(tg, R_prev, x_prev, R_prev, tscale[t], arm))
-            cands.append(hand.solve(mirror, R_prev, x_prev, R_prev, tscale[t], arm))
-        if R_prev is None or (min(c[3] for c in cands) > 0.07 and tscale[t] < 2):   # (re)initialise from the data
-            for init in (hand.init_rot(tg), hand.init_rot(mirror)):
-                cands.append(hand.solve(tg, init, x_prev, R_prev, tscale[t], arm))
-        ci = int(np.argmin([c[2] for c in cands]))
-        x, Rh, _, r = cands[ci]
-        used_mirror[t] = (R_prev is not None and ci == 1) or (len(cands) in (2, 4) and ci == len(cands) - 1
-                                                              and R_prev is None)
+        if z3d[t]:
+            # depth is known (3D hand model): no mirror ambiguity; start from the previous pose
+            # and from the data's own orientation, keep the better fit
+            if R_prev is not None:
+                cands.append(hand.solve(tg, R_prev, x_prev, R_prev, tscale[t], arm, True))
+            cands.append(hand.solve(tg, hand.init_rot(tg), x_prev, R_prev, tscale[t], arm, True))
+            ci = int(np.argmin([c[2] for c in cands]))
+            x, Rh, _, r = cands[ci]
+        else:
+            if R_prev is not None:
+                # The depth SIGN of a tracked hand is unreliable frame to frame (a hand and its
+                # depth mirror look the same in the image). Fit both readings from the previous
+                # pose; the temporal term then keeps the one that continues the motion.
+                cands.append(hand.solve(tg, R_prev, x_prev, R_prev, tscale[t], arm))
+                cands.append(hand.solve(mirror, R_prev, x_prev, R_prev, tscale[t], arm))
+            if R_prev is None or (min(c[3] for c in cands) > 0.07 and tscale[t] < 2):   # (re)initialise from the data
+                for init in (hand.init_rot(tg), hand.init_rot(mirror)):
+                    cands.append(hand.solve(tg, init, x_prev, R_prev, tscale[t], arm))
+            ci = int(np.argmin([c[2] for c in cands]))
+            x, Rh, _, r = cands[ci]
+            used_mirror[t] = (R_prev is not None and ci == 1) or (len(cands) in (2, 4) and ci == len(cands) - 1
+                                                                  and R_prev is None)
         x = np.r_[0, 0, 0, x[3:]]
         X[t], R[t], rms[t] = x, Rh, r
         x_prev, R_prev = x, Rh
@@ -403,7 +416,7 @@ def _fit_side(args):
         for t in np.flatnonzero(mask):
             tg = targets[t] * (np.array([1.0, -1.0, 1.0]) if used_mirror[t] else 1.0)
             x, Rh, _, r = hand.solve(tg, R[t], X[t], R[t], PULL * (1 - 0.85 * act[t]) * tscale[t],
-                                     arms[t] if arms is not None else None)
+                                     arms[t] if arms is not None else None, bool(z3d[t]))
             X[t], R[t], rms[t] = np.r_[0, 0, 0, x[3:]], Rh, r
     Xp, Rp = X.copy(), R.copy()
     _smooth_blocks(mask, lambda a, b: lowpass(a, b, SIG_FINAL))
@@ -435,8 +448,8 @@ def fit_sequence(seq, segments=None, workers=2, sigma=0.5):
             if kind == "transition":
                 mask[a:b] = False
     cal = json.load(open(os.path.join(HERE, "models", "avatar_calib.json")))
-    jobs = [(s, _to_bl(seq[:, off:off + 21] - seq[:, off:off + 1]), mask, arm_frames(seq, s, cal))
-            for s, off in (("l", LH), ("r", RH))]
+    jobs = [(s, _to_bl(seq[:, off:off + 21] - seq[:, off:off + 1]), mask, arm_frames(seq, s, cal), seq[:, slot, 0])
+            for s, off, slot in (("l", LH, 17), ("r", RH, 18))]
     if workers > 1:
         with ProcessPoolExecutor(2) as ex:
             results = list(ex.map(_fit_side, jobs))

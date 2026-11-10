@@ -215,7 +215,7 @@ def process_clip(kp, return_offset=False, return_meta=False, trim=True):
     body[:, 24] = body[:, 23] - [0.72, 0, 0]
     out[:, P:P + 33] = body
 
-    weights = {}
+    weights, zconf = {}, {}
     for side, (s, e, w, _, off, sign) in SIDES.items():
         hand_raw = kp["lh" if side == "L" else "rh"]
         det = ~np.isnan(hand_raw[:, 0, 0])
@@ -263,6 +263,11 @@ def process_clip(kp, return_offset=False, return_meta=False, trim=True):
                 # rejected: MediaPipe's depth belongs to the rejected reading, so drop it (a flat
                 # depth profile tells the fit "no depth evidence")
                 hand_off[noz, :, 2] = 0.0
+            zok = kp.get("zok_lh" if side == "L" else "zok_rh")
+            if zok is not None and zok.any():
+                # frames read by the 3D hand-mesh model: x, y and depth from one consistent hand
+                hand_off[zok] = raw_off[zok]
+                zconf[side] = zok.astype(float)
             hand_off, short = _fill(hand_off, det, MAX_GAP)
             hand_off = hampel(hand_off, floor=0.10)           # one-frame handshape glitches
             wrist = np.where(det[:, None], hand[:, 0], body[:, w])
@@ -322,6 +327,11 @@ def process_clip(kp, return_offset=False, return_meta=False, trim=True):
             out[:, P + e], out[:, P + w] = el_f, wr_f
             out[:, off:off + 21] = wr_f[:, None] + hand_f
             weights[side] = wt[:, 0]
+
+    # Depth confidence per hand (1 = the hand's depth is a real 3D reading), carried in the
+    # unused pose slots 17 (left) / 18 (right) so it follows the frames through phrase assembly.
+    for side, slot in (("L", 17), ("R", 18)):
+        out[:, P + slot] = (zconf.get(side, np.zeros(T)) * (weights[side] > 0.5))[:, None]
 
     # Hand-over-hand depth order: stored as a small z offset on each hand (canonical units,
     # negative = towards the camera); the retargeter adds it to the IK wrist depth.
