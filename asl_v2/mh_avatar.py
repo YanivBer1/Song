@@ -420,6 +420,7 @@ def neutral_face(feats):
     return out
 
 
+CONTACT = os.environ.get("ASL_CONTACT", "1") == "1"   # contact-aware end-effector correction (see Retargeter.pose)
 MOUTH_GAIN = float(os.environ.get("ASL_MOUTH", 0.25))
 SMILE0 = float(os.environ.get("ASL_SMILE", 0.8))      # resting corner-puller: lower values read as a frown on this face
 
@@ -806,6 +807,31 @@ class Retargeter:
                 if unit in kb:
                     kb[unit].value = val
         return w
+
+    TIPS = (4, 8, 12, 16, 20)
+
+    @staticmethod
+    def _face_contact(f, off):
+        """(weight, landmark) of the fingertip of the hand at `off` that is on or next to the
+        face in the signer's image; weight 0 when no fingertip is within reach of the face."""
+        face = f[FACE:FACE + 468, :2]
+        d = [np.min(np.linalg.norm(face - f[off + j, :2], axis=1)) for j in Retargeter.TIPS]
+        k = int(np.argmin(d))
+        return float(np.clip((0.09 - d[k]) / 0.05, 0.0, 1.0)), Retargeter.TIPS[k]
+
+    @staticmethod
+    def _hand_contact(f):
+        """(weight, (tip of hand A, landmark of hand B), A) for the closest fingertip-to-hand
+        approach between the two hands in the signer's image, or None when they are apart."""
+        best = None
+        for sa, a, b in (("l", LH, RH), ("r", RH, LH)):
+            for j in Retargeter.TIPS:
+                dd = np.linalg.norm(f[b:b + 21, :2] - f[a + j, :2], axis=1)
+                k = int(np.argmin(dd))
+                if best is None or dd[k] < best[0]:
+                    best = (float(dd[k]), (j, k), sa)
+        w = float(np.clip((0.10 - best[0]) / 0.06, 0.0, 1.0))
+        return (w, best[1], best[2]) if w > 0 else None
 
     LMAP21 = None
 
@@ -1275,9 +1301,26 @@ class Retargeter:
             if it == iters:
                 break
             bpy.context.view_layer.update()
+            hs = {s: self._hand_screen(s) for s in "lr"} if CONTACT else None
+            hh = self._hand_contact(f) if CONTACT else None
             for s, off in (("l", LH), ("r", RH)):
                 tgt = np.mean([self.warp(f[off + i], f) for i in idx], 0)
-                corr[s] = corr[s] + np.clip(tgt - self._effector_screen(s), -0.15, 0.15)
+                step = tgt - self._effector_screen(s)
+                if CONTACT:
+                    # A fingertip that touches the face in the source must land on the same
+                    # spot of the avatar's face: near the face the correction follows that
+                    # fingertip instead of the hand's centroid (finger proportions differ).
+                    w, j = self._face_contact(f, off)
+                    if w > 0:
+                        step = (1 - w) * step + w * (self.warp(f[off + j], f) - hs[s][j])
+                    # Hands that touch each other keep the offset between the touching points.
+                    if hh is not None:
+                        wh, (ja, kb), sa = hh
+                        a, b = (LH, RH) if sa == "l" else (RH, LH)
+                        so = "r" if sa == "l" else "l"
+                        err = (f[a + ja, :2] - f[b + kb, :2]) - (hs[sa][ja] - hs[so][kb])
+                        step = (1 - 0.7 * wh) * step + wh * (0.5 if s == sa else -0.5) * err
+                corr[s] = corr[s] + np.clip(step, -0.15, 0.15)
         self._resolve(f, corr, zx)
         self.last_corr, self.last_zx = corr, zx
 
