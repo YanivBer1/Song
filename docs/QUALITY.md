@@ -28,6 +28,26 @@ Side-by-side frames against the source video confirm it: SMALL now has both palm
 each other (v5 turned them to the camera) and HELP has the thumb-up fist on a flat,
 palm-up base hand (v5 had the base hand vertical).
 
+24 random phrases (6,731 frames; only 5 of the 99 signs have 3D readings), v5 → v6:
+handshape on signing frames 89.3 → 92.2, hand placement 98.3 → 98.8, no hand/forearm
+inside body 99.3 → 99.9, no hand through hand 98.9 → 99.3, joint limits and junction
+continuity 100.
+
+Also in v6:
+
+- **Face:** the head is taken relative to each sign's average head pose (the recordings
+  carry a constant 15-20° nose-down tilt that made the avatar look sad), the resting mouth
+  is neutral instead of downturned, mouth movement is subtle (an open mouth read as a
+  grimace), and the expression is carried across frames where a hand covers the face.
+- **Render time:** `render_fast.py` renders the backdrop once per clip and then only the
+  character's bounding box per frame, with a cheaper denoiser prefilter: about 2.9 s per
+  1280x720 frame on 4 idle CPU cores against 11.5 s before, at the same look (38.7 dB vs
+  39.8 dB PSNR on hand and face crops against a 128-sample reference).
+- **A test that did not help:** tuning the 2D-only fit's priors (wrist comfort, depth
+  weight, regularisation) against the 3D readings. On the five signs with 3D data the
+  2D-only fit stays more than 45° off in hand orientation on 28% of frames whatever the
+  setting. The depth has to be measured; it cannot be guessed.
+
 **Coverage:** WiLoR results exist for 5 of the 99 signs (JOHN, SMALL, IS, HE, HELP), stored
 in `asl_v2/data/wilor/`. The other 94 signs still use the v5 2D path until
 `track_wilor.py` is run on them (`scripts/setup_wilor.sh`).
