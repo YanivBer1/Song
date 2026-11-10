@@ -420,13 +420,16 @@ def neutral_face(feats):
     return out
 
 
+SMILE0 = float(os.environ.get("ASL_SMILE", 0.8))      # resting corner-puller: lower values read as a frown on this face
+
+
 def expression_weights(feat, neutral):
     c = lambda v: float(np.clip(v, 0.0, 1.0))
     w = {
         "mouth-open": c((feat["open"] - neutral["open"]) / 0.10),
-        # +0.15 baseline: MakeHuman's resting mouth reads as a slight frown; interpreters keep a
+        # baseline: MakeHuman's resting mouth reads as a frown; interpreters keep a
         # relaxed, pleasant neutral face
-        "mouth-corner-puller": c(0.15 + (feat["width"] - neutral["width"]) / 0.07),
+        "mouth-corner-puller": c(SMILE0 + (feat["width"] - neutral["width"]) / 0.07),
         "mouth-pursing": c((neutral["width"] - feat["width"]) / 0.07),
     }
     for s, side in (("l", "left"), ("r", "right")):
@@ -461,6 +464,25 @@ ORDER = ["upperarm", "lowerarm", "hand", "thumb_01", "thumb_02", "thumb_03",
 def to_dir(p):
     p = np.asarray(p, float)
     return np.stack([p[..., 0], p[..., 2] * ZS, -p[..., 1]], -1)
+
+
+def _face_rot(f):
+    """Head rotation (Blender axes) implied by the face mesh of one canonical frame."""
+    face = to_dir(f[FACE:FACE + 468])
+    right = face[454] - face[234]
+    up = face[10] - face[152]
+    Rt = _frame(up, -right)           # y = up, z = -right  (x = forward-ish)
+    Rr = _frame(np.array([0, 0, 1.0]), np.array([-1.0, 0, 0]))
+    return Rt @ Rr.T
+
+
+def _mean_rot(Rs):
+    """Average rotation (projection of the arithmetic mean onto SO(3))."""
+    U, _, Vt = np.linalg.svd(np.mean(Rs, axis=0))
+    R = U @ Vt
+    if np.linalg.det(R) < 0:
+        R = U @ np.diag([1, 1, -1.0]) @ Vt
+    return R
 
 
 def solve_arm(S, E_obs, T_obs, a, b, z_bias=0.0):
@@ -915,6 +937,17 @@ class Retargeter:
                 solve[a:b] = False
             elif kind == "hold":
                 hold[a:b] = True
+        # Head: each recorded sign carries a constant head tilt (signer posture + the face
+        # mesh's own axis offset; typically 15-20 degrees nose-down, which makes the avatar look
+        # sad). Head motion is therefore taken relative to the average head pose of its sign;
+        # frames outside a sign use the nearest sign's average.
+        Rf = np.stack([_face_rot(f) for f in seq])
+        strokes = [(a, b) for kind, a, b, _ in (segments or []) if kind == "stroke"] or [(0, T)]
+        means = [_mean_rot(Rf[a:b]) for a, b in strokes]
+        mid = np.array([(a + b) / 2 for a, b in strokes])
+        self.head_bias = np.stack([means[int(np.argmin(np.abs(mid - t)))] if not any(a <= t < b for a, b in strokes)
+                                   else means[next(i for i, (a, b) in enumerate(strokes) if a <= t < b)]
+                                   for t in range(T)])
         rig = self.rig
         names = [pb.name for pb in rig.pose.bones]
         corr = np.zeros((T, 2, 2))
@@ -1104,6 +1137,20 @@ class Retargeter:
             W = np.array([[expression_weights(ft, neutral)[k] for k in keys] for ft in feats])
             base = expression_weights(neutral, neutral)
             W[hold] = [base[k] for k in keys]
+            # A hand in front of the face corrupts the face landmarks (the avatar would frown
+            # or gape): on those frames carry the expression across from the clear frames.
+            fx, fy = seq[:, FACE:FACE + 468, 0], seq[:, FACE:FACE + 468, 1]
+            hands = seq[:, LH:LH + 42, :2]
+            occ = ((hands[:, :, 0] > fx.min(1)[:, None] - 0.03) & (hands[:, :, 0] < fx.max(1)[:, None] + 0.03)
+                   & (hands[:, :, 1] > fy.min(1)[:, None]) & (hands[:, :, 1] < fy.max(1)[:, None] + 0.06)).any(1)
+            occ = np.convolve(occ.astype(float), np.ones(5), "same") > 0
+            base_w = np.array([base[k] for k in keys])
+            for a, b in _blocks(occ):
+                wa = W[a - 1] if a > 0 else base_w
+                wb = W[b] if b < T else base_w
+                for k in range(a, b):
+                    u = (k - a + 1) / (b - a + 1)
+                    W[k] = 0.5 * ((1 - u) * wa + u * wb) + 0.5 * base_w
             for t0, t1 in [(a, b) for kind, a, b, _ in (segments or []) if kind == "transition"]:
                 lo, hi = max(t0 - 1, 0), min(t1, T - 1)
                 for k in range(t0, t1):
@@ -1403,13 +1450,13 @@ class Retargeter:
                         posed[name] = RA @ np.array(qb.to_matrix())
                 rig.pose.bones[name].rotation_quaternion = qb
 
-        # head orientation from the face mesh
-        face = to_dir(f[FACE:FACE + 468])
-        right = face[454] - face[234]
-        up = face[10] - face[152]
-        Rt = _frame(up, -right)           # y = up, z = -right  (x = forward-ish)
-        Rr = _frame(np.array([0, 0, 1.0]), np.array([-1.0, 0, 0]))
-        R_face = Rt @ Rr.T
+        # head orientation from the face mesh, relative to the sign's own average head pose
+        # (see bake: the face-mesh axes carry a constant per-signer tilt that is not head motion)
+        R_face = _face_rot(f)
+        bias = getattr(self, "head_bias", None)
+        ft = getattr(self, "frame_t", -1)
+        if bias is not None and 0 <= ft < len(bias):
+            R_face = R_face @ bias[ft].T
         q = Matrix(R_face.tolist()).to_quaternion()
         q_half = Quaternion().slerp(q, 0.5 * 0.85)   # neck + head share the turn; damp tracker noise
         for name, qq in (("neck_01", q_half), ("head", q_half)):

@@ -10,7 +10,7 @@ Space's sign dictionary); everything after that is replaced:
 Holistic keypoints -> asl_v2.motion (rest hands, normalisation, gap filling,
 eased transitions, smoothing) -> renderer:
   2d        illustrated 2D person (seconds)
-  human     realistic MakeHuman character in Blender/Cycles (~7 s/frame on CPU)
+  human     realistic MakeHuman character in Blender/Cycles (~3 s/frame at 1280x720 on 4 CPU cores)
   mannequin procedural Blender skin-modifier figure (experiment)
 """
 
@@ -165,8 +165,8 @@ def main():
     ap.add_argument("-o", "--output", default="outputs/v2/asl.mp4")
     ap.add_argument("--renderer", choices=["2d", "human", "mannequin"], default="2d")
     ap.add_argument("--signs", help="comma-separated sign words; skips the word2vec lookup")
-    ap.add_argument("--samples", type=int, default=16, help="Cycles samples (Blender renderers)")
-    ap.add_argument("--res", default="960x540", help="Blender render resolution")
+    ap.add_argument("--samples", type=int, default=12, help="Cycles samples (Blender renderers)")
+    ap.add_argument("--res", default="1280x720", help="Blender render resolution")
     args = ap.parse_args()
     out = os.path.abspath(args.output)
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -188,7 +188,7 @@ def main():
         motion_file = os.path.splitext(out)[0] + ".motion.npy"
         save_motion(motion_file, seq, info)
         blender_py = os.path.join(HERE, ".venv-blender", "bin", "python")
-        script = "render_human.py" if args.renderer == "human" else "render3d.py"
+        script = "render_fast.py" if args.renderer == "human" else "render3d.py"
         subprocess.run([blender_py, os.path.join(HERE, "asl_v2", script), motion_file, out,
                         "--samples", str(args.samples), "--res", args.res], check=True)
     print(f"wrote {out}")

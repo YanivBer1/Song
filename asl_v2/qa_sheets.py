@@ -88,10 +88,13 @@ def compose(zoom=True):
             s_img = cv2.warpAffine(src[j], M, (W, H), flags=cv2.INTER_CUBIC, borderValue=(255, 255, 255))
             pts = np.concatenate([t["img_R"][j][:, :2], t["img_L"][j][:, :2]])
             pts = pts[~np.isnan(pts[:, 0])]
-            if zoom and len(pts):
-                q = pts @ M[:, :2].T + M[:, 2]
-                c = (q.min(0) + q.max(0)) / 2
-                half = int(np.clip(max(np.ptp(q[:, 0]), np.ptp(q[:, 1])) / 2 + 45, 90, 180))
+            if zoom:
+                if len(pts):
+                    q = pts @ M[:, :2].T + M[:, 2]
+                    c = (q.min(0) + q.max(0)) / 2
+                    half = int(np.clip(max(np.ptp(q[:, 0]), np.ptp(q[:, 1])) / 2 + 45, 90, 180))
+                else:                                   # no hand tracked on this frame: centre crop
+                    c, half = np.array([W / 2, H / 2]), 180
                 x0 = int(np.clip(c[0] - half, 0, W - 2 * half))
                 y0 = int(np.clip(c[1] - half, 0, H - 2 * half))
                 s_img = cv2.resize(s_img[y0:y0 + 2 * half, x0:x0 + 2 * half], (300, 300), interpolation=cv2.INTER_CUBIC)
