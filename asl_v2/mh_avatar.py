@@ -1118,6 +1118,16 @@ class Retargeter:
                 g = gain.get(k, 0.7 if k.startswith("eyebrows") else 0.6)
                 W[:, keys.index(k)] *= g
             W = np.clip(_gauss(W, 3.0), 0, 1)
+            # natural blinking (people blink every 3-5 s): a living face, never a fixed stare
+            rng = np.random.default_rng(7)
+            t_b = int(rng.integers(40, 80))
+            prof = np.array([0.45, 0.95, 1.0, 0.7, 0.3])
+            while t_b + len(prof) < T:
+                for kk in ("eye-left-closure", "eye-right-closure"):
+                    if kk in keys:
+                        j = keys.index(kk)
+                        W[t_b:t_b + len(prof), j] = np.maximum(W[t_b:t_b + len(prof), j], prof)
+                t_b += int(rng.integers(90, 150))
             expr = (keys, W)
         self.baked = dict(names=names, Q=Q, expr=expr, last=last, solve=solve, hold=hold)
         return self.baked

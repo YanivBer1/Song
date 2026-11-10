@@ -55,8 +55,51 @@ def save_motion(path, seq, info):
     np.savez_compressed(path[:-4] + ".fit.npz", **fit_sequence(seq, segs))
 
 
+_ONES = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+         "sixteen seventeen eighteen nineteen").split()
+_TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
+_SCALE = {"hundred", "thousand", "million", "billion", "trillion"}
+
+
+def number_words(n):
+    """0..999999 -> English number words (each word has a sign in the dictionary)."""
+    if n < 20:
+        return [_ONES[n]]
+    if n < 100:
+        return [_TENS[n // 10 - 2]] + ([_ONES[n % 10]] if n % 10 else [])
+    if n < 1000:
+        return [_ONES[n // 100], "hundred"] + (number_words(n % 100) if n % 100 else [])
+    return number_words(n // 1000) + ["thousand"] + (number_words(n % 1000) if n % 1000 else [])
+
+
 def tokens(text):
-    return [t for t in (re.sub(r"[^\w\s]", "", tok).lower().strip() for tok in text.split()) if t]
+    """Words to sign. Digits become number words and a currency/percent symbol becomes the
+    word after the whole amount: "$7 billion" -> seven billion dollars, "50%" -> fifty percent."""
+    out, pending = [], None
+    for tok in text.split():
+        unit = "dollars" if "$" in tok else "percent" if "%" in tok else None
+        core = re.sub(r"[^\w\s.]", "", tok).lower().strip(".")
+        if re.fullmatch(r"\d[\d,]*(\.\d+)?", core.replace(",", "")) or core.replace(",", "").isdigit():
+            whole, _, frac = core.replace(",", "").partition(".")
+            words = number_words(int(whole)) if int(whole) < 1000000 else [_ONES[int(d)] for d in whole]
+            if frac:
+                words += ["point"] + [_ONES[int(d)] for d in frac]
+            out += words
+            if unit:
+                pending = unit
+            continue
+        word = re.sub(r"[^\w\s]", "", tok).lower().strip()
+        if not word:
+            continue
+        if pending and word not in _SCALE:            # the amount has ended: say its unit
+            out.append(pending)
+            pending = None
+        out.append(word)
+        if unit and not pending and word != unit:
+            out.append(unit)
+    if pending:
+        out.append(pending)
+    return out
 
 
 _PRIOR = None

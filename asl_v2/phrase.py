@@ -94,6 +94,36 @@ def segment_phases(clip, meta):
     return start, end, active
 
 
+def compress_holds(stroke, max_hold=10, still_wrist=0.006, still_shape=0.007):
+    """Dictionary signers hold a static pose for a second or more; in a sentence that reads
+    as the signer freezing. Any stretch where neither hand travels nor changes shape for
+    longer than `max_hold` frames (1/3 s) is shortened to that length. Motion is judged on
+    low-passed trajectories, so tracker jitter in a held pose does not count as movement."""
+    T = len(stroke)
+    if T <= max_hold + 2:
+        return stroke
+    moving = np.zeros(T, bool)
+    for off in (LH, RH):
+        w = gaussian_filter1d(stroke[:, off], 2.0, axis=0, mode="nearest")
+        h = gaussian_filter1d(stroke[:, off:off + 21] - stroke[:, off:off + 1], 2.5, axis=0, mode="nearest")
+        moving[1:] |= np.linalg.norm(np.diff(w, axis=0), axis=1) >= still_wrist
+        moving[1:] |= np.sqrt(((h[1:] - h[:-1]) ** 2).sum(2).mean(1)) >= still_shape
+    moving[0] = moving[1]
+    keep = np.ones(T, bool)
+    t = 0
+    while t < T:
+        if moving[t]:
+            t += 1
+            continue
+        u = t
+        while u < T and not moving[u]:
+            u += 1
+        if u - t > max_hold:
+            keep[t + max_hold // 2: u - (max_hold - max_hold // 2)] = False
+        t = u
+    return stroke[keep]
+
+
 def settle(stroke, at_end, fast=0.04, n=5, decay=0.55):
     """Dictionary clips are sometimes cut while the hand is still moving fast. Real
     hands don't stop instantly: extend such a stroke with a short, physically plausible
@@ -186,7 +216,7 @@ def assemble(items, hold=12, speed=SPEED):
     strokes, actives, static = [], [], []
     for clip, meta in items:
         s0, s1, act = segment_phases(clip, meta)
-        strokes.append(settle(settle(retime(clip[s0:s1 + 1], speed), True), False))
+        strokes.append(settle(settle(compress_holds(retime(clip[s0:s1 + 1], speed)), True), False))
         actives.append(act)
         static.append(bool(act.get("static")))
 
