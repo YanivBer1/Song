@@ -9,3 +9,5 @@ cache/
 asl_v2/models/*.task
 outputs/eval/
 outputs/audit/
+outputs/**/*.fit.npz
+outputs/**/*.segments.json
