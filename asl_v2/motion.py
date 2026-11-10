@@ -251,6 +251,7 @@ def process_clip(kp, return_offset=False, return_meta=False, trim=True):
                 hand[:, 0, :2] = np.where(good[:, None], J[:, 0, :2], hand[:, 0, :2])
                 det = det | good
             hand_off, short = _fill(hand_off, det, MAX_GAP)
+            hand_off = hampel(hand_off, floor=0.10)           # one-frame handshape glitches
             wrist = np.where(det[:, None], hand[:, 0], body[:, w])
             # hand z is relative to its own wrist; anchor at the body wrist depth
             wrist[:, 2] = body[:, w, 2]

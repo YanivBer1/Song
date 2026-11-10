@@ -60,7 +60,14 @@ def segment_phases(clip, meta):
     v[1:] = np.linalg.norm(np.diff(w, axis=0), axis=2).max(1)
     v = gaussian_filter1d(v, 1.0)
     thr = 0.6 * d.max()
-    inside = np.flatnonzero(d > thr)
+    # In signing space = an active wrist above the belt line (anatomical), or clearly away
+    # from rest. A sign whose movement heads downward (HOUSE tracing a roof) is not a
+    # retraction until the hand actually drops to rest height.
+    above = np.zeros(T, bool)
+    for s, off in (("L", LH), ("R", RH)):
+        if active[s]:
+            above |= (clip[:, off, 1] < 1.2) & (meta[f"weight_{s}"] > 0.5)
+    inside = np.flatnonzero((d > thr) | above)
     first_in, last_in = int(inside[0]), int(inside[-1])
     # arrival: the hands settle after the preparation movement
     a0, a1 = first_in, min(first_in + 12, last_in)

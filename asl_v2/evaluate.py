@@ -118,7 +118,7 @@ def evaluate(seq, valid=None):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     rig, objs = mh_avatar.build_character()
     rt = mh_avatar.Retargeter(rig, objs)
-    rt.use_hinge = os.environ.get("ASL_HINGE", "1") == "1"
+    rt.use_hinge = os.environ.get("ASL_HINGE", "0") == "1"
     cal = rt.cal
     sw = cal["mp_shoulder_width_m"]
     mid = np.array([cal["mp_mid_world_xz"][0], 0.0, cal["mp_mid_world_xz"][1]])
