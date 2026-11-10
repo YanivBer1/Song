@@ -268,12 +268,24 @@ def process_clip(kp, return_offset=False, return_meta=False, trim=True):
                 # frames read by the 3D hand-mesh model: x, y and depth from one consistent hand
                 hand_off[zok] = raw_off[zok]
                 zconf[side] = zok.astype(float)
+            # Between two real hand detections the wrist comes from the solver's gap filling or
+            # from the body tracker. When that fallback jumps far from the path the detected
+            # hand is on (HAVE: the hand "teleports" to the shoulder for four frames), it is a
+            # tracking glitch: drop it and let the gap be interpolated.
+            di = np.flatnonzero(raw_det)
+            gap_bad = np.zeros(T, bool)
+            if len(di) >= 2:
+                path = np.stack([np.interp(np.arange(T), di, norm(hand_raw)[di, 0, k]) for k in range(2)], 1)
+                gap = ~raw_det & (np.arange(T) > di[0]) & (np.arange(T) < di[-1])
+                det = det & ~(gap & (np.linalg.norm(hand[:, 0, :2] - path, axis=1) > 0.35))
+                gap_bad = gap & (np.linalg.norm(body[:, w, :2] - path, axis=1) > 0.35)
             hand_off, short = _fill(hand_off, det, MAX_GAP)
             hand_off = hampel(hand_off, floor=0.10)           # one-frame handshape glitches
             wrist = np.where(det[:, None], hand[:, 0], body[:, w])
             # hand z is relative to its own wrist; anchor at the body wrist depth
             wrist[:, 2] = body[:, w, 2]
             wrist_ok = det | ((vis[:, w] > 0.6) & (pose[:, w, 1] < 0.97 * H))
+            wrist_ok &= ~(gap_bad & ~det)
             wrist, _ = _fill(wrist, wrist_ok)
             elbow = body[:, e].copy()
             elbow_ok = vis[:, e] > 0.4

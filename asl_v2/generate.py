@@ -112,8 +112,10 @@ def tracked_keypoints(word, url=None, solver=True):
     global _PRIOR
     from .track import track
     t = track(word, url)
-    from .track_rtm import augment, fused
-    t = augment(word)                      # adds the second detector's hands (cached)
+    from .track_rtm import augment, drop_ghosts, drop_jumps, fused
+    t = dict(augment(word))                # adds the second detector's hands (cached)
+    drop_ghosts(t)                         # a hand read twice (as both sides) is one hand
+    drop_jumps(t)                          # detections that teleport for a few frames
     fu = fused(t)                          # per-frame temporally consistent choice of the two
     kp = dict(pose=t["pose"], face=t["face"], lh=fu["img_L"], rh=fu["img_R"], size=t["size"], fps=t["fps"],
               world_lh=t["world_L"], world_rh=t["world_R"], noz_lh=fu["noz_L"], noz_rh=fu["noz_R"])

@@ -162,6 +162,63 @@ def fused(t):
     return out
 
 
+def drop_ghosts(t):
+    """Remove duplicate readings of one physical hand. When the body tracker loses the weak
+    arm, its hand crop can land on the signing hand, and both detectors then report that hand
+    a second time as the other side (THANK-YOU, NOT: a second hand pops up for a few frames).
+    A side is a ghost on frames where it lies on top of the other side's hand and it is seen
+    in under 20% as many frames as that side; what is left of it is dropped too if it is only
+    a handful of frames with the wrist not visible. Edits t in place; returns frames dropped."""
+    f = fused(t)
+    T = len(t["pose"])
+    n = {s: int((f[f"choice_{s}"] > 0).sum()) for s in "LR"}
+    dropped = {}
+    for s, o in (("L", "R"), ("R", "L")):
+        ghost = np.zeros(T, bool)
+        if 0 < n[s] < 0.2 * n[o]:
+            for i in np.flatnonzero((f[f"choice_{s}"] > 0) & (f[f"choice_{o}"] > 0)):
+                a, b = f[f"img_{s}"][i][:, :2], f[f"img_{o}"][i][:, :2]
+                span = max(np.ptp(b[:, 0]), np.ptp(b[:, 1]), 1e-6)
+                ghost[i] = np.linalg.norm(a - b, axis=1).mean() < 0.5 * span
+            rest = (f[f"choice_{s}"] > 0) & ~ghost
+            if ghost.any() and rest.sum() < 6:
+                ghost |= rest & (t["pose"][:, POSE_HAND[s][0], 3] < 0.5)
+        if ghost.any():
+            for key in (f"img_{s}", f"world_{s}", f"rtm_{s}"):
+                if key in t:
+                    t[key] = t[key].copy()
+                    t[key][ghost] = np.nan
+            t[f"rtmc_{s}"] = np.where(ghost, 0.0, t[f"rtmc_{s}"]).astype(np.float32)
+        dropped[s] = int(ghost.sum())
+    return dropped
+
+
+def drop_jumps(t, win=5, k=2.5):
+    """Remove hand detections that teleport: a short run of frames whose wrist is more than
+    k hand sizes away from the running median of the detected wrist path (+-win detections).
+    A run of up to win-1 frames cannot move the median, and no real movement goes that far
+    and back within a third of a second. Edits t in place; returns frames dropped per side."""
+    f = fused(t)
+    dropped = {}
+    for s in "LR":
+        img = f[f"img_{s}"]
+        di = np.flatnonzero(f[f"choice_{s}"] > 0)
+        bad = np.zeros(len(img), bool)
+        if len(di) >= 2 * win + 1:
+            p = img[di, 0, :2]
+            size = np.median([max(np.ptp(h[:, 0]), np.ptp(h[:, 1])) for h in img[di, :, :2]])
+            med = np.stack([np.median(p[max(0, j - win):j + win + 1], axis=0) for j in range(len(di))])
+            bad[di[np.linalg.norm(p - med, axis=1) > k * size]] = True
+        if bad.any():
+            for key in (f"img_{s}", f"world_{s}", f"rtm_{s}"):
+                if key in t:
+                    t[key] = t[key].copy()
+                    t[key][bad] = np.nan
+            t[f"rtmc_{s}"] = np.where(bad, 0.0, t[f"rtmc_{s}"]).astype(np.float32)
+        dropped[s] = int(bad.sum())
+    return dropped
+
+
 if __name__ == "__main__":
     import sys
     for w in sys.argv[1:]:

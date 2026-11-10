@@ -1,0 +1,2027 @@
+[
+ {
+  "sign": "again",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-right",
+    "type": "finger_spread",
+    "note": "Source base hand is a flat palm-up hand with fingers held together; avatar base hand is palm-up but with all fingers widely splayed (5-hand instead of B-hand)."
+   },
+   {
+    "pairs": [
+     5
+    ],
+    "hand": "image-left",
+    "type": "contact",
+    "note": "Source bent hand has its fingertips planted in the base palm; avatar bent hand hovers roughly a hand-length above the palm without touching."
+   },
+   {
+    "pairs": [
+     6
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source fingertips land in the centre of the base palm; avatar fingertips land at the heel/wrist of the base hand."
+   }
+  ]
+ },
+ {
+  "sign": "am",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source shows a closed M (fingers curled down into the palm over the tucked thumb); avatar shows an open bent hand with straight fingers folded sideways at the knuckles and the palm fully exposed, thumb not tucked under the fingers."
+   },
+   {
+    "pairs": [
+     2
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source fingers are still mostly curled in transition; avatar hand is already an open bent hand with a large gap between fingers and palm."
+   }
+  ]
+ },
+ {
+  "sign": "are",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source E has fingers curled tightly down onto the thumb tucked across the palm; avatar fingers only fold over at the top leaving the palm open and the thumb at the side, a loose E."
+   },
+   {
+    "pairs": [
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source R has ring and little finger pinned down by the thumb; avatar ring and little finger are only half curled beside the crossed index/middle."
+   },
+   {
+    "pairs": [
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "face",
+    "note": "Avatar mouth corners are pulled down in a frown while the source face is neutral."
+   }
+  ]
+ },
+ {
+  "sign": "bad",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "finger_spread",
+    "note": "Source palm-down hand has fingers together lying flat across the lower hand; avatar hand has fingers spread and angled more steeply downward."
+   },
+   {
+    "pairs": [
+     3
+    ],
+    "hand": "image-left",
+    "type": "contact",
+    "note": "Source hand is already resting on the lower palm-up hand; avatar hand is still about half a hand-length above it with no contact."
+   }
+  ]
+ },
+ {
+  "sign": "big",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "billion",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source shows a closed fist-like letter with fingers folded down over the thumb, knuckles forward; avatar shows an open bent hand with straight fingers extended horizontally to image-right and the palm exposed."
+   },
+   {
+    "pairs": [
+     1
+    ],
+    "hand": "image-left",
+    "type": "orientation",
+    "note": "Source B-hand has its palm square to the camera; avatar B-hand is yawed roughly 30-40 degrees so it reads narrower and partly edge-on."
+   },
+   {
+    "pairs": [
+     2
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source has only index and thumb forming the curve with other fingers curled in; avatar also has the middle finger raised alongside the index."
+   }
+  ]
+ },
+ {
+  "sign": "book",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "both",
+    "type": "orientation",
+    "note": "Source palms are pressed together with fingers pointing straight at the camera (seen end-on); avatar hands are pressed together with fingers pointing down, the full finger length visible like an inverted prayer."
+   },
+   {
+    "pairs": [
+     4
+    ],
+    "hand": "both",
+    "type": "penetration",
+    "note": "Source hands are still closed palm-to-palm seen end-on; avatar hands are crossed with the image-left hand's fingers passing through the image-right hand."
+   },
+   {
+    "pairs": [
+     3,
+     6
+    ],
+    "hand": "both",
+    "type": "orientation",
+    "note": "Source open-book hands are palm-up with little-finger edges touching and fingers pointing forward; avatar hands point their fingers down/inward toward each other and meet at the fingertips instead of along the little-finger edges."
+   },
+   {
+    "pairs": [
+     5
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source hands touch along the little-finger edges; avatar hands are separated by about half a hand width with palms facing each other."
+   }
+  ]
+ },
+ {
+  "sign": "brother",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-right",
+    "type": "handshape",
+    "note": "Source lower hand is a fist with thumb up and index forward directly under the upper hand; avatar lower hand is an open flat hand with fingers pointing straight down and thumb out to the side."
+   },
+   {
+    "pairs": [
+     4
+    ],
+    "hand": "image-right",
+    "type": "placement",
+    "note": "Source lower hand is fully visible supporting the upper hand; avatar lower hand is mostly hidden below/behind the upper hand and cannot be read as a matching index hand."
+   },
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source hand touches the forehead at the brow/temple; avatar hand sits higher, on the hair at the top of the head."
+   }
+  ]
+ },
+ {
+  "sign": "buy",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-right",
+    "type": "orientation",
+    "note": "Source base hand stays flat, palm up, fingers pointing horizontally to image-left; avatar base hand is rotated upright with fingers pointing up and the palm facing sideways toward the other hand."
+   },
+   {
+    "pairs": [
+     3
+    ],
+    "hand": "image-right",
+    "type": "orientation",
+    "note": "Source base hand is palm-up seen edge-on; avatar base hand is tilted about 45 degrees toward the camera with the thumb standing up."
+   },
+   {
+    "pairs": [
+     5
+    ],
+    "hand": "image-right",
+    "type": "finger_spread",
+    "note": "Source base-hand fingers are together; avatar base-hand fingers are splayed."
+   }
+  ]
+ },
+ {
+  "sign": "can",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source upper hand has one digit fully extended pointing to image-right; avatar upper hand is closer to a fist with that digit short and partly crooked."
+   },
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "image-right",
+    "type": "placement",
+    "note": "Source lower hand is visible under the upper hand with its thumb sticking out to image-right; avatar lower hand is almost entirely hidden and in pair 3 its fingers curl downward with no thumb visible."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-right",
+    "type": "finger_spread",
+    "note": "Source lower palm-up hand has fingers together and slightly cupped; avatar lower hand has fingers splayed."
+   }
+  ]
+ },
+ {
+  "sign": "car",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "handshape",
+    "note": "Source shows two tight S-fists gripping a wheel; avatar hands are loosely curled with the index finger protruding toward the other hand, closer to a loose pinch than a fist."
+   },
+   {
+    "pairs": [
+     2,
+     3,
+     4,
+     6
+    ],
+    "hand": "both",
+    "type": "face",
+    "note": "Avatar has a pronounced frown/grimace with downturned mouth while the source is neutral."
+   }
+  ]
+ },
+ {
+  "sign": "come",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     4
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source hand passes directly in front of the eye and nose; avatar hand is beside the temple/ear with the face fully uncovered."
+   },
+   {
+    "pairs": [
+     2,
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source keeps the non-index fingers curled with only the index leading; avatar opens all fingers into a loose spread hand."
+   },
+   {
+    "pairs": [
+     4
+    ],
+    "hand": "image-left",
+    "type": "face",
+    "note": "Avatar shows a lopsided grimace."
+   }
+  ]
+ },
+ {
+  "sign": "day",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source passes the face with only the index extended; avatar appears to have two fingers extended in a V over the nose."
+   }
+  ]
+ },
+ {
+  "sign": "deaf",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "contact",
+    "note": "Source index fingertip touches the ear lobe; avatar index points up beside the face at eye/cheek height with a clear gap (about a third of a hand length) and never reaches the ear."
+   },
+   {
+    "pairs": [
+     3
+    ],
+    "hand": "image-left",
+    "type": "contact",
+    "note": "Source index fingertip touches the cheek near the mouth; avatar index floats to the image-left of the face without touching."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "face",
+    "note": "Avatar has a strongly downturned mouth; source is neutral/speaking."
+   }
+  ]
+ },
+ {
+  "sign": "dollars",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source grasping hand is already wrapped over the base hand's fingers; avatar grasping hand is still down at the bottom edge of the frame, far from the base hand."
+   },
+   {
+    "pairs": [
+     2
+    ],
+    "hand": "image-left",
+    "type": "contact",
+    "note": "Source hand is closed around the base hand's fingers; avatar hand hovers up-left of the base fingers with curled fingers but no grip."
+   }
+  ]
+ },
+ {
+  "sign": "drink",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source tipped hand keeps a curved C with thumb at the mouth corner; avatar hand is nearly flat with straight fingers held up over the cheek and eye."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "face",
+    "note": "Avatar has a strongly downturned mouth."
+   }
+  ]
+ },
+ {
+  "sign": "eat",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     2
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source bunched fingertips are at the lips; avatar fingertips are at the jaw/chin below and to the side of the mouth."
+   },
+   {
+    "pairs": [
+     4
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source hand has dropped to the upper chest; avatar hand is still at the throat, about half a hand-length higher."
+   }
+  ]
+ },
+ {
+  "sign": "family",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "father",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source hand is directly in front of the mouth and nose; avatar hand sits to the image-left of the face with only the fingertips reaching the lips."
+   },
+   {
+    "pairs": [
+     4
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source hand covers the brow/eye on the image-left side; avatar hand is centred higher over the forehead and hairline."
+   }
+  ]
+ },
+ {
+  "sign": "feel",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "fine",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source upper hand lands flattened across the base hand's fingers; avatar upper hand is a closed fist sitting on the base hand and hides the base thumb."
+   }
+  ]
+ },
+ {
+  "sign": "finish",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "finger_spread",
+    "note": "Source is a wide 5-hand with all fingers splayed over the upper chest; avatar fingers are nearly together and the hand is tucked higher against the neck."
+   },
+   {
+    "pairs": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "finger_spread",
+    "note": "Source flipped hand keeps all five digits fanned; avatar hand is a narrow flat hand with fingers together or split into just two groups."
+   }
+  ]
+ },
+ {
+  "sign": "food",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "friend",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "both",
+    "type": "handshape",
+    "note": "Source has two hooked index fingers (X-hands) locked together; avatar image-left index is straight and points up-right while the image-right hand is a loose curl above it with no hook."
+   },
+   {
+    "pairs": [
+     1,
+     3
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source index fingers are interlocked; avatar hands are separated, the index tip only pointing toward the other hand."
+   },
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source hands are re-hooked with the image-left hand on top; avatar image-right index is straight and merely points at the image-left hand, which is open (pair 5) or loosely curled (pair 6), with no interlock."
+   }
+  ]
+ },
+ {
+  "sign": "go",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "good",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source moving hand lies palm-up inside the base palm; avatar moving hand stays to the image-left of the base hand, partly out of frame, and never rests in the palm."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source moving hand is a flat hand with fingers together; avatar shows a single digit pointing toward the base hand with the other fingers curled."
+   },
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-right",
+    "type": "finger_spread",
+    "note": "Source base hand is palm-up with fingers together; avatar base hand is palm-up with fingers splayed."
+   }
+  ]
+ },
+ {
+  "sign": "happy",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "have",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     4
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source arm hangs straight down with the hand at hip level; avatar arm is bent with the hand raised to the shoulder/neck."
+   },
+   {
+    "pairs": [
+     3,
+     6
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source hand hangs at the side as a downward-pointing fist; avatar forearm is raised to horizontal with the hand bent down at the wrist."
+   },
+   {
+    "pairs": [
+     3,
+     5
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source is a fist with one digit pointing down; avatar is an open bent hand with all fingers extended down-right."
+   },
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "other",
+    "note": "Source frames show only a near-rest hand at the side throughout while the avatar performs a raise to the chest, so source and avatar do not appear to depict the same motion (possible wrong source segment or frame mapping)."
+   }
+  ]
+ },
+ {
+  "sign": "he",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "hearing",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source index lies horizontal with its tip in front of the chin/lips centre; avatar index is angled about 30 degrees upward and its tip stops at the cheek/mouth corner, short of the mouth centre."
+   },
+   {
+    "pairs": [
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "face",
+    "note": "Avatar has a strongly downturned frown; source is neutral/speaking."
+   }
+  ]
+ },
+ {
+  "sign": "hello",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "orientation",
+    "note": "Source hand at the temple shows a broad palm-side view with slightly curled fingers; avatar hand is a rigid flat hand seen narrower and more edge-on, salute style."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "other",
+    "note": "The hand is cut off at the top of the frame in both tiles (only wrist/heel visible), so handshape and palm direction cannot be verified in these pairs."
+   },
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "both",
+    "type": "face",
+    "note": "Source has an open greeting mouth; avatar shows a downturned frown."
+   }
+  ]
+ },
+ {
+  "sign": "help",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "hi",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "orientation",
+    "note": "Source hand at the temple shows a broad palm-side view with slightly curled fingers; avatar hand is a rigid flat hand seen narrower and more edge-on, salute style."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "other",
+    "note": "The hand is cut off at the top of the frame in both tiles (only wrist/heel visible), so handshape and palm direction cannot be verified in these pairs."
+   },
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "both",
+    "type": "face",
+    "note": "Source has an open greeting mouth; avatar shows a downturned frown."
+   }
+  ]
+ },
+ {
+  "sign": "home",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source holds a flattened-O (all fingertips bunched onto the thumb); avatar shows a bent open hand with the thumb hanging apart from the fingers (pair 5 is an open C-like hand)."
+   },
+   {
+    "pairs": [
+     1,
+     2,
+     4,
+     5
+    ],
+    "hand": "image-left",
+    "type": "contact",
+    "note": "Source fingertips press on the cheek (near mouth, then near ear); avatar fingertips stop a third to half a hand short of the face."
+   }
+  ]
+ },
+ {
+  "sign": "house",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "both",
+    "type": "placement",
+    "note": "Source roof hands are symmetric with fingertips converging at nose height; avatar image-left hand sits against the mouth/cheek while image-right hand is lower and farther out, so the roof is lopsided."
+   },
+   {
+    "pairs": [
+     2,
+     3,
+     4
+    ],
+    "hand": "both",
+    "type": "face",
+    "note": "Avatar bares its teeth in a grimace while the source is simply mouthing with an open mouth."
+   }
+  ]
+ },
+ {
+  "sign": "how",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source knuckles are pressed together; avatar hands are separated by about a third of a hand width (a smaller gap persists in pairs 4-6)."
+   },
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "both",
+    "type": "handshape",
+    "note": "Source uses bent hands with backs of fingers together and wrists flared out; avatar shows tight upright fists."
+   }
+  ]
+ },
+ {
+  "sign": "hungry",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "image-left",
+    "type": "finger_spread",
+    "note": "Source C-hand has fingers held together; avatar fingers are separated and clawed on the chest."
+   }
+  ]
+ },
+ {
+  "sign": "i",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "is",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source S-fist has the thumb wrapped across the front of the fingers; avatar fist shows curled fingers with no thumb across (reads nearer A/E) and is rotated about 30 degrees."
+   }
+  ]
+ },
+ {
+  "sign": "john",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source N has index and middle folded down over the thumb; avatar keeps index and middle extended straight up-right (H/U-like), so the last letter is not formed."
+   },
+   {
+    "pairs": [
+     1,
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source fist and O are tightly closed; avatar fingers are loosely curled with a visible gap to the thumb."
+   }
+  ]
+ },
+ {
+  "sign": "know",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "contact",
+    "note": "Source fingertips are already on the forehead; avatar flat hand is held about a third of a hand away from the head with fingers pointing up."
+   },
+   {
+    "pairs": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source hand is bent at the knuckles touching the forehead above the eye; avatar hand is straight and flat, touching the temple/hairline with the thumb sticking out."
+   }
+  ]
+ },
+ {
+  "sign": "language",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "image-right",
+    "type": "handshape",
+    "note": "Source L-hand (thumb up, index pointing inward); avatar hand is a closed fist or thumb-only with the index not extended."
+   },
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-right",
+    "type": "handshape",
+    "note": "Source has index pointing inward with the other fingers closed; avatar index points inward but the remaining fingers hang open pointing down."
+   }
+  ]
+ },
+ {
+  "sign": "later",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source L-hand tips forward (thumb up, index toward camera, other fingers closed); avatar keeps index up with the other fingers extended and splayed sideways, hand not tipped forward."
+   },
+   {
+    "pairs": [
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source hand is beside/overlapping the cheek; avatar hand floats half to one hand-width out from the face."
+   }
+  ]
+ },
+ {
+  "sign": "learn",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     5
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source bunched fingertips touch the forehead above the brows; avatar hand lies across the eyes and nose bridge, half a hand lower, covering the face."
+   }
+  ]
+ },
+ {
+  "sign": "like",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source fist is on the mouth; avatar fist is beside the cheek (pair 1) or over the nose/eyes (pair 2), a full fist-width off the mouth."
+   },
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "orientation",
+    "note": "Source forearm comes up vertically from below with knuckles to camera; avatar elbow is raised and the forearm crosses the face horizontally, hiding it."
+   }
+  ]
+ },
+ {
+  "sign": "look",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source is a closed fist; avatar has the index finger sticking straight up (pair 6 also thumb out, an L-like hand)."
+   },
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source fist rests on the eye; avatar hand is on the forehead/temple above the brow with fingers pressed into the brow."
+   },
+   {
+    "pairs": [
+     6
+    ],
+    "hand": "image-left",
+    "type": "penetration",
+    "note": "Avatar open palm is pressed flat over half the face, where the source holds a fist just in front of the nose/eye."
+   }
+  ]
+ },
+ {
+  "sign": "love",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source closes to a tight fist under the chin; avatar hand stays loosely curled exactly as in pairs 1-3 and never closes."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source fist sits under the chin; avatar fingertips stay pressed on/into the lower lip."
+   },
+   {
+    "pairs": [
+     4,
+     5
+    ],
+    "hand": "image-left",
+    "type": "face",
+    "note": "Avatar shows a bared-teeth grimace around the fingers."
+   }
+  ]
+ },
+ {
+  "sign": "me",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "meet",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     5
+    ],
+    "hand": "image-right",
+    "type": "handshape",
+    "note": "Source front hand is a fist with only the index up; avatar front hand has two or three fingers loosely extended upward."
+   },
+   {
+    "pairs": [
+     6
+    ],
+    "hand": "image-right",
+    "type": "handshape",
+    "note": "Source front hand keeps its index upright level with the rear hand; avatar front hand has the index curled into the fist and sits half a hand below the rear hand."
+   },
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4
+    ],
+    "hand": "both",
+    "type": "other",
+    "note": "Source shows two distinct stacked hands (front fist lower, rear index above); avatar shows essentially one hand with the second hidden behind it."
+   }
+  ]
+ },
+ {
+  "sign": "money",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "more",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     3,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source flat-O fingertips of both hands touch; avatar fingertips stay about a third of a hand apart in every pair."
+   }
+  ]
+ },
+ {
+  "sign": "morning",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source dominant hand is loosely closed/cupped palm-up; avatar hand is open with fingers splayed wide."
+   },
+   {
+    "pairs": [
+     4
+    ],
+    "hand": "image-right",
+    "type": "contact",
+    "note": "Source non-dominant hand stays in the crook of the dominant elbow; avatar non-dominant hand has left the arm and floats with fingers pointing up-left."
+   },
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "orientation",
+    "note": "Source is a flat hand with straight fingers and the back of the hand to camera; avatar fingers are curled into a cupped hand with the thumb folded in, appearing palm-side to camera (clear in pair 5)."
+   }
+  ]
+ },
+ {
+  "sign": "mother",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "finger_spread",
+    "note": "Source is a wide-spread 5-hand; avatar fingers are held close together."
+   },
+   {
+    "pairs": [
+     1,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source thumb tip touches the chin; avatar index/middle fingertips rest on the chin or lips and the thumb is not at the chin."
+   }
+  ]
+ },
+ {
+  "sign": "my",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "name",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source top H-fingers lie across the middle of the lower H-fingers; avatar fingers only meet near the tips and do not cross."
+   }
+  ]
+ },
+ {
+  "sign": "need",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     2,
+     4,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source index is hooked (X-hand); avatar index is straight, pointing down."
+   }
+  ]
+ },
+ {
+  "sign": "nice",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "night",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-right",
+    "type": "orientation",
+    "note": "Source flat hand lies horizontally under the elbow with fingers pointing left; avatar hand is tilted about 35 degrees upward with fingertips poking the forearm."
+   },
+   {
+    "pairs": [
+     2
+    ],
+    "hand": "image-left",
+    "type": "finger_spread",
+    "note": "Source far hand is flat with fingers together; avatar fingers are splayed and drooping."
+   }
+  ]
+ },
+ {
+  "sign": "no",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "not",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     3,
+     4,
+     5
+    ],
+    "hand": "image-right",
+    "type": "other",
+    "note": "Source is one-handed with the other hand out of frame; avatar raises a second hand into the signing space (open hand in 3, fist in 4, thumb-up in 5)."
+   },
+   {
+    "pairs": [
+     4
+    ],
+    "hand": "both",
+    "type": "penetration",
+    "note": "Avatar second hand overlaps and interlocks with the dominant thumb-up hand."
+   },
+   {
+    "pairs": [
+     3,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "orientation",
+    "note": "Source thumb is vertical; avatar thumb leans about 30-35 degrees to the right."
+   },
+   {
+    "pairs": [
+     1
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source is a closed fist with the thumb under the chin; avatar fingers are loosely curled with the index at the chin."
+   }
+  ]
+ },
+ {
+  "sign": "now",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "our",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "pay",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-right",
+    "type": "finger_spread",
+    "note": "Source base hand is flat with fingers together; avatar base hand has fingers splayed wide and angled down toward the camera."
+   },
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-right",
+    "type": "orientation",
+    "note": "Source base hand is palm up; avatar base hand shows the back of the hand (palm down/toward body) at the belt."
+   },
+   {
+    "pairs": [
+     4,
+     5
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source is a fist with a hooked index pointing down; avatar is a fist with the thumb sticking out sideways and no index (index points sideways in pair 6)."
+   }
+  ]
+ },
+ {
+  "sign": "please",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "pm",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source M is a closed fist with three fingers folded over the thumb; avatar is an open claw with only the fingertips bent and the thumb out to the side."
+   },
+   {
+    "pairs": [
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source P has the index extended straight down; avatar index is pulled in, barely protruding from the curled fingers."
+   }
+  ]
+ },
+ {
+  "sign": "sad",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "both",
+    "type": "placement",
+    "note": "Source hands are in front of the face with fingertips at eye level; avatar hands are about half a hand lower and wider apart, at chin/collar level, not covering the face."
+   }
+  ]
+ },
+ {
+  "sign": "school",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "orientation",
+    "note": "Source top hand is flat and nearly horizontal, palm down, hovering parallel above the lower palm; avatar top hand is pitched up 35-50 degrees with its palm turned toward the camera and (pair 2) already resting its heel on the lower hand."
+   },
+   {
+    "pairs": [
+     5
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source top hand is still a flat open hand lying on the lower palm; avatar top hand is curled into a fist/claw sitting on the lower palm."
+   },
+   {
+    "pairs": [
+     6
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source hands are still clapped flat together; avatar hands have separated, the image-left hand hanging fingers-down at the left edge and the image-right hand palm-up alone."
+   }
+  ]
+ },
+ {
+  "sign": "see",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source V fingertips sit on the face at eye/nose level (index at the eye); avatar V is correct in shape and orientation but its tips are at cheek/jaw level beside the face, about 0.4 hand length low and lateral."
+   }
+  ]
+ },
+ {
+  "sign": "seven",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "finger_spread",
+    "note": "Source index and middle are spread in a clear V and the pinky splays outward; avatar index and middle are parallel and almost touching and the pinky stands more upright (thumb-to-ring contact is correct)."
+   }
+  ]
+ },
+ {
+  "sign": "she",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source is a tight fist with only the index extended; avatar index points correctly but middle/ring/pinky hang half-open below the hand instead of being tucked into a fist."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source shows a fist with the index tip pointing at the camera; avatar shows four similar loosely curled fingers hanging down so the pointing index does not stand out from the others."
+   }
+  ]
+ },
+ {
+  "sign": "sign",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     5
+    ],
+    "hand": "both",
+    "type": "handshape",
+    "note": "Source hands at the lower frame corners are closed fists; avatar hands there are open with fingers extended downward."
+   },
+   {
+    "pairs": [
+     6
+    ],
+    "hand": "both",
+    "type": "handshape",
+    "note": "Source hands are fists with one index each pointing down toward the centre; avatar hands are loose claws with two or more fingers dangling down, not a clean single-index point."
+   }
+  ]
+ },
+ {
+  "sign": "sister",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source hand has its thumb on the chin/jaw line; avatar hand sits lower at neck/collar height, about half a hand length below the chin and not touching the face."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source ends with the image-left hand stacked directly on top of the image-right hand; avatar has the image-left hand below (pair 4) or beside and lower than (pairs 5, 6) the image-right hand, so the hands sit side by side instead of one on top."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-right",
+    "type": "handshape",
+    "note": "Source base hand has its index finger clearly extended pointing image-left; avatar hands read as thumbs-up fists with no extended index visible."
+   }
+  ]
+ },
+ {
+  "sign": "small",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source hand is a flat hand seen edge-on with fingers pointing forward; avatar hand shows a thumb-up with the fingers bent in toward the centre."
+   },
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-right",
+    "type": "orientation",
+    "note": "Source hand stays edge-on to the camera with palm facing the other hand; avatar hand is rotated roughly 30-40 degrees so the palm and slightly separated fingers face the camera."
+   }
+  ]
+ },
+ {
+  "sign": "sorry",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "student",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "teacher",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "both",
+    "type": "handshape",
+    "note": "Source hands at the temples are flat-O shapes with fingertips closed onto the thumb; avatar hands are open curved hands/claws with fingers extended upward and the thumb clearly apart from them."
+   },
+   {
+    "pairs": [
+     1
+    ],
+    "hand": "image-left",
+    "type": "missing_hand",
+    "note": "Source image-left hand is visible beside the forehead; avatar image-left hand is out of the frame above/left of the head."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "finger_spread",
+    "note": "Source hands at the hips are flat with fingers together pointing down; avatar hands point down with fingers visibly splayed apart."
+   }
+  ]
+ },
+ {
+  "sign": "thank_you",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     3,
+     4
+    ],
+    "hand": "image-right",
+    "type": "placement",
+    "note": "Source shows only the signing hand with nothing else in front of the torso; avatar has a second hand raised palm-up in front of the belly just below the signing hand, making it look two-handed."
+   },
+   {
+    "pairs": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "finger_spread",
+    "note": "Source hand is a palm-up flat hand with fingers together pointing at the camera; avatar hand is palm-up but cupped with all five fingers splayed apart and curled upward like a claw."
+   }
+  ]
+ },
+ {
+  "sign": "they",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source is a closed fist with the index pointing sideways; avatar index direction is right but middle/ring/pinky hang straight down half-extended rather than tucked into a fist."
+   }
+  ]
+ },
+ {
+  "sign": "think",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1
+    ],
+    "hand": "image-left",
+    "type": "contact",
+    "note": "Source index tip touches the side of the forehead; avatar index tip is still about a third of a hand length short of the head (contact is made in pairs 3-6)."
+   }
+  ]
+ },
+ {
+  "sign": "time",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source index tip lands on the back of the other wrist; avatar index tip stays hovering about a third of a hand length above the wrist and never touches it."
+   },
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source tapping hand is a fist with a bent index; avatar hand has the index extended but the other fingers hanging loosely open below the hand."
+   }
+  ]
+ },
+ {
+  "sign": "tired",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "orientation",
+    "note": "Source hand is upright with fingers pointing up and the back of the hand broad to the camera; avatar hand is leaned over diagonally, seen narrow/edge-on with fingers bunched and sitting slightly lower than the other hand."
+   }
+  ]
+ },
+ {
+  "sign": "today",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     6
+    ],
+    "hand": "image-right",
+    "type": "handshape",
+    "note": "Source base hand under the pointing arm is loosely curled; avatar base hand is a fully flat extended hand pointing image-left."
+   }
+  ]
+ },
+ {
+  "sign": "tomorrow",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     3
+    ],
+    "hand": "image-left",
+    "type": "contact",
+    "note": "Source thumb is against the side of the head; avatar thumbs-up fist is held about a third of a hand length away from the face."
+   },
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "both",
+    "type": "face",
+    "note": "Source is smiling; avatar has a furrowed brow with the mouth pulled open showing teeth, reading as a grimace."
+   }
+  ]
+ },
+ {
+  "sign": "understand",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "placement",
+    "note": "Source hand stays at forehead height inside the frame; avatar hand has risen above the head and out of the crop (only the wrist is visible), so the flicked index cannot be seen and sits at least half a hand length too high."
+   },
+   {
+    "pairs": [
+     2,
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source is a tight fist beside the forehead; avatar fist is looser with separated finger tips visible at the top."
+   }
+  ]
+ },
+ {
+  "sign": "want",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "water",
+  "verdict": "wrong",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source is a W with index, middle and ring straight and fanned wide in the image plane; avatar has the index up but middle and ring appear as short hooked stubs bunched close together, so the three-finger W is not readable."
+   },
+   {
+    "pairs": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "orientation",
+    "note": "Source hand is seen side-on with the fan of fingers spread across the image; avatar hand is turned so the fingers are foreshortened toward the camera and the hand is a narrow strip against the neck."
+   }
+  ]
+ },
+ {
+  "sign": "we",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "what",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source hand at the frame edge is a relaxed palm-up cupped hand; avatar hand there is closed into a fist with the knuckles forward (pairs 4-6 open palms match)."
+   }
+  ]
+ },
+ {
+  "sign": "when",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source moving index comes down and touches the tip of the upright base index; avatar moving hand stops a quarter (pair 4) to half (pairs 5, 6) a hand length above the base fingertip with no contact."
+   },
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source moving hand has a clear index pointing straight down; avatar moving hand is a loose curl of fingers with no distinct downward index."
+   }
+  ]
+ },
+ {
+  "sign": "where",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "who",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "why",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "will",
+  "verdict": "match",
+  "issues": []
+ },
+ {
+  "sign": "win",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2
+    ],
+    "hand": "image-left",
+    "type": "finger_spread",
+    "note": "Source raised hand is a C with the fingers held together and curved over the thumb; avatar raised hand has the fingers splayed apart pointing up with the palm turned more toward the camera."
+   },
+   {
+    "pairs": [
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source upper hand is a tight fist; avatar upper fist is looser with a finger tip sticking up from the top."
+   }
+  ]
+ },
+ {
+  "sign": "work",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     2,
+     3,
+     5,
+     6
+    ],
+    "hand": "both",
+    "type": "contact",
+    "note": "Source upper wrist rests on the back of the lower fist; avatar upper fist floats about a quarter hand length above the lower one and the lower fist is shifted image-left, so the wrists do not touch."
+   }
+  ]
+ },
+ {
+  "sign": "yes",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source is a tight S-fist; avatar fist is loose with the finger tips visible in a row and not pressed into the palm."
+   },
+   {
+    "pairs": [
+     3
+    ],
+    "hand": "image-left",
+    "type": "orientation",
+    "note": "Source fist is upright with the curled-finger side to the camera; avatar fist is already bent forward with the knuckles to the camera and lower (likely a nod-phase/timing offset)."
+   }
+  ]
+ },
+ {
+  "sign": "yesterday",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     3,
+     4,
+     5
+    ],
+    "hand": "image-left",
+    "type": "contact",
+    "note": "Source thumb tip touches the cheek/ear; avatar thumb points the right way but stops a third to half a hand length short of the face."
+   }
+  ]
+ },
+ {
+  "sign": "you",
+  "verdict": "minor",
+  "issues": [
+   {
+    "pairs": [
+     1,
+     2,
+     3
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source is a tight fist with only the index extended; avatar index points correctly but middle/ring/pinky hang half-open below the hand instead of being tucked into a fist."
+   },
+   {
+    "pairs": [
+     4,
+     5,
+     6
+    ],
+    "hand": "image-left",
+    "type": "handshape",
+    "note": "Source shows a fist with the index tip pointing at the camera; avatar shows four similar loosely curled fingers hanging down so the pointing index does not stand out (sheet is pixel-identical to the SHE sheet)."
+   }
+  ]
+ },
+ {
+  "sign": "your",
+  "verdict": "match",
+  "issues": []
+ }
+]
