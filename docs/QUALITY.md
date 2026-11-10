@@ -1,4 +1,40 @@
-# v5 update (supersedes the results below)
+# v6: 3D hand-mesh readings (WiLoR)
+
+The weak cases of v5 were all hands whose depth cannot be read from 2D landmarks: palms
+edge-on to the camera, fingers pointing at the lens, a fist resting on a palm. v6 adds a
+3D hand-mesh model, WiLoR, as an optional tracking stage (`track_wilor.py`):
+
+- RTMW-x whole-body pose finds each hand box and ties it to the correct arm.
+- WiLoR reconstructs the hand in 3D from that crop (about 2.2 s per hand per frame on CPU).
+- A frame is used only when WiLoR's projected hand agrees with an independent 2D detector.
+- On those frames the motion carries x, y and depth from one consistent 3D hand; the
+  avatar fit trusts that depth and no longer guesses between a hand and its depth mirror.
+- Hands that overlap in the signer's image are now brought into contact along their
+  actual separation direction (the fist in HELP rests on the palm; it used to float 35 mm
+  above it).
+
+Measured on the posed avatar, same phrase with and without the 3D readings:
+
+| phrase | metric | v5 | v6 |
+|---|---|---|---|
+| HE HELP SMALL | handshape on signing frames | 72.9 | **99.5** |
+| | jerk-free frames inside signs | 81.9 | **99.2** |
+| | hand placement | 87.6 | **100.0** |
+| | no hand through hand | 91.3 | **100.0** |
+| HI MY NAME IS JOHN | handshape on signing frames | 97.0 | **98.6** |
+| | jerk-free frames inside signs | 99.3 | 98.7 |
+
+Side-by-side frames against the source video confirm it: SMALL now has both palms facing
+each other (v5 turned them to the camera) and HELP has the thumb-up fist on a flat,
+palm-up base hand (v5 had the base hand vertical).
+
+**Coverage:** WiLoR results exist for 5 of the 99 signs (JOHN, SMALL, IS, HE, HELP), stored
+in `asl_v2/data/wilor/`. The other 94 signs still use the v5 2D path until
+`track_wilor.py` is run on them (`scripts/setup_wilor.sh`).
+
+---
+
+# v5 update (superseded for signs that have 3D readings, see above)
 
 The earlier numbers in this file compared the avatar with an intermediate 3D hand
 reconstruction, not with the tracked image, and overstated accuracy. A frame-by-frame
