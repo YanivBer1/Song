@@ -31,6 +31,7 @@ IDX = np.array([2, 3, 4] + list(range(5, 21)))
 W2D = np.ones(len(IDX))
 W2D[np.isin(IDX, [4, 8, 12, 16, 20])] = 1.3
 WZ, WT_ANG, WT_ROT, WREG, WWRIST = 0.30, 0.03, 0.06, 0.004, 0.7
+W_DIP, W_ABD = float(os.environ.get("ASL_WDIP", 0.0)), float(os.environ.get("ASL_WABD", 0.0))
 WZ3D = float(os.environ.get("ASL_WZ3D", 0.8))             # depth weight on frames with a 3D-model reading
 
 EURO_FC, EURO_BETA = 1.5, 1.0                              # input de-jitter (One-Euro)
@@ -196,6 +197,11 @@ class Hand:
                 twist = np.arccos(np.clip(pp @ medial / (npp + 1e-9), -1, 1)) if npp > 0.2 else 0.0
                 out.append(np.array([W_WRIST * max(0.0, swing - 1.4), W_WRIST * max(0.0, twist - 1.75),
                                      W_COMFORT * twist, 0.6 * W_COMFORT * swing]))   # prefer a relaxed wrist
+            if W_DIP or W_ABD:
+                # anatomy: the last finger joint bends with the middle one (DIP ~ 2/3 PIP), and
+                # fingers stay together unless the image says they are spread
+                fa = x[3:19].reshape(4, 4)
+                out += [W_DIP * (fa[:, 3] - 0.67 * fa[:, 2]), W_ABD * fa[:, 1]]
             if pri is None:
                 out.append(WREG * x[3:25])
             else:
