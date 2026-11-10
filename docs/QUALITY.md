@@ -1,3 +1,49 @@
+# v5 update (supersedes the results below)
+
+The earlier numbers in this file compared the avatar with an intermediate 3D hand
+reconstruction, not with the tracked image, and overstated accuracy. A frame-by-frame
+review of JOHN against the source video showed open hands where the signer has a fist.
+
+Changes since:
+
+- **Fit target:** the avatar's hand skeleton is fitted directly to the tracked 2D
+  landmarks (`handfit.py`), under finger, wrist and forearm range-of-motion limits.
+- **Two detectors:** MediaPipe and RTMPose-m hand are fused per frame by temporal
+  consistency (`track_rtm.py`), because MediaPipe flips its reading on some frames.
+- **Smoothing:** One-Euro de-jitter of the input, then a second solving pass that pulls
+  each frame toward the low-passed trajectory.
+- **Motion:** whole-sentence bake with smoothed corrections; transitions use
+  minimum-jerk hand paths with IK and a hinge elbow.
+- **Look and pace:** calmer symmetric face, darker outfit, warmer skin, recorded-speed
+  signs, longer transitions.
+
+There is no generative video model in this pipeline: tracking, fitting, a MakeHuman
+character and Blender's Cycles renderer produce every frame.
+
+## Results, 24 random phrases (6,356 frames), measured against the tracked 2D landmarks
+
+| metric | mean | worst phrase |
+|---|---|---|
+| handshape match on signing frames | 89.3 | 78.5 |
+| hand placement | 98.3 | 83.2 |
+| finger joints within human range | 100.0 | 100.0 |
+| no hand/forearm inside body | 99.3 | 96.5 |
+| no hand through hand | 98.9 | 89.1 |
+| jerk-free frames inside signs | 93.4 | 82.6 |
+| jerk-free frames in transitions | 99.6 | 97.5 |
+| (reference) signer's own tracked motion, jerk-free | 81.9 | 65.7 |
+| junction continuity / no freeze | 100.0 | 100.0 |
+
+"Hi, my name is John" alone: handshape 96.9, jerk-free in signs 99.3.
+
+Known weak cases: hands edge-on or pointing at the camera (SMALL), fist-on-palm contact
+signs (HELP), and frames where both detectors misread the hand. A PCA hand-pose prior
+trained on 6,975 fitted poses gave no measurable gain and is off by default. These
+scores are relative to the trackers; visual checks against the source video
+(`outputs/audit`, review sheets) remain necessary.
+
+---
+
 # v3 pipeline: method, audits and measured quality
 
 These are research notes for the realistic ASL avatar pipeline in `asl_v2/`. Every
