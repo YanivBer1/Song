@@ -69,8 +69,11 @@ def tracked_keypoints(word, url=None, solver=True):
     global _PRIOR
     from .track import track
     t = track(word, url)
-    kp = dict(pose=t["pose"], face=t["face"], lh=t["img_L"], rh=t["img_R"], size=t["size"], fps=t["fps"],
-              world_lh=t["world_L"], world_rh=t["world_R"])
+    from .track_rtm import augment, fused
+    t = augment(word)                      # adds the second detector's hands (cached)
+    fu = fused(t)                          # per-frame temporally consistent choice of the two
+    kp = dict(pose=t["pose"], face=t["face"], lh=fu["img_L"], rh=fu["img_R"], size=t["size"], fps=t["fps"],
+              world_lh=t["world_L"], world_rh=t["world_R"], noz_lh=fu["noz_L"], noz_rh=fu["noz_R"])
     if solver:
         from . import kinematics as K
         if word not in _FIT_CACHE:

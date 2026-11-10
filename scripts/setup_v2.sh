@@ -26,5 +26,5 @@ fi
 mkdir -p asl_v2/models
 [ -f asl_v2/models/hand_landmarker.task ] || curl -L -o asl_v2/models/hand_landmarker.task \
   https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
-uv pip install -p .venv/bin/python huggingface_hub pose-format
+uv pip install -p .venv/bin/python huggingface_hub pose-format rtmlib onnxruntime
 echo "ready"

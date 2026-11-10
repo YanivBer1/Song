@@ -164,6 +164,8 @@ class Hand:
         data_len = sum(np.linalg.norm(T[b + k + 1] - T[b + k]) for b in (5, 9, 13, 17) for k in range(3))
         k = self.finger_len / (data_len + 1e-9)
         Tn = k * (T - T[KNUCK].mean(0)) / self.hand_len
+        # a (nearly) flat depth profile means "no depth evidence" for this frame
+        wz = WZ * float(np.clip((np.ptp(Tn[:, 1]) - 0.05) / 0.10, 0.0, 1.0))
 
         def res(x):
             R_h = R_init @ _exp(x[:3])
@@ -171,7 +173,7 @@ class Hand:
             An = np.exp(x[25]) * (A - A[KNUCK].mean(0)) / self.hand_len
             d = An[IDX] - Tn[IDX]
             wr = np.exp(x[25]) * (A[0] + self.wrist_off * (R_h @ self.mid_dir_local) - A[KNUCK].mean(0)) / self.hand_len - Tn[0]
-            out = [(W2D[:, None] * d[:, [0, 2]]).ravel(), WZ * d[:, 1], WWRIST * wr[[0, 2]], WREG * x[3:25]]
+            out = [(W2D[:, None] * d[:, [0, 2]]).ravel(), wz * d[:, 1], WWRIST * wr[[0, 2]], WREG * x[3:25]]
             if x_prev is not None:
                 out += [ts * WT_ANG * (x[3:25] - x_prev[3:25]), ts * WT_ROT * _log(R_prev.T @ R_h),
                         0.3 * (x[25:] - x_prev[25:])]

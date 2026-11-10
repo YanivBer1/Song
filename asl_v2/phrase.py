@@ -177,7 +177,7 @@ def hermite_transition(a, b, va, vb, n):
 
 def transition_frames(a, b):
     """Fluent transition length from wrist travel and hand rotation (~100-500 ms)."""
-    return int(np.clip(round(6 + 7 * _travel(a, b) + 4 * _hand_turn(a, b) / np.pi), 8, 20))
+    return int(np.clip(round(9 + 9 * _travel(a, b) + 6 * _hand_turn(a, b) / np.pi), 12, 26))
 
 
 def assemble(items, hold=12, speed=SPEED):

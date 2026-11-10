@@ -250,6 +250,19 @@ def process_clip(kp, return_offset=False, return_meta=False, trim=True):
                 hand = hand.copy()
                 hand[:, 0, :2] = np.where(good[:, None], J[:, 0, :2], hand[:, 0, :2])
                 det = det | good
+            # Image-plane positions always come straight from the tracker's 2D landmarks (the
+            # reliable part); the reconstructions above only supply the depth. The avatar-space
+            # fit (handfit.py) then solves the 3D pose itself under joint limits.
+            raw_det = ~np.isnan(hand_raw[:, 0, 0])
+            raw_off = norm(hand_raw) - norm(hand_raw)[:, :1]
+            hand_off[raw_det, :, :2] = raw_off[raw_det][:, :, :2]
+            hand[raw_det, 0, :2] = norm(hand_raw)[raw_det, 0, :2]
+            noz = kp.get("noz_lh" if side == "L" else "noz_rh")
+            if noz is not None:
+                # frames whose 2D comes from the second detector because MediaPipe's reading was
+                # rejected: MediaPipe's depth belongs to the rejected reading, so drop it (a flat
+                # depth profile tells the fit "no depth evidence")
+                hand_off[noz, :, 2] = 0.0
             hand_off, short = _fill(hand_off, det, MAX_GAP)
             hand_off = hampel(hand_off, floor=0.10)           # one-frame handshape glitches
             wrist = np.where(det[:, None], hand[:, 0], body[:, w])
