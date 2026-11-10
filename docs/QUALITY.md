@@ -55,6 +55,11 @@ Also in v6:
   (THANK-YOU → NICE). Median transition 633 ms.
 - **Visual review of every sign:** [`docs/QA_V6.md`](QA_V6.md). 26 signs match the source,
   48 have minor deviations, 25 are wrong, mostly from the depth problem above.
+- **Finger anatomy:** the last finger joint is coupled to the middle one (DIP ≈ 2/3 PIP) in
+  the hand fit. Against the 3D readings this lowers the finger-joint error of the 2D-only
+  path from 17.5° to 16.3°; handshape match and smoothness on three test phrases are
+  unchanged. A fingers-together prior gave nothing on top and is off. (The v6 videos were
+  fitted just before this was switched on.)
 - **A test that did not help:** tuning the 2D-only fit's priors (wrist comfort, depth
   weight, regularisation) against the 3D readings. On the five signs with 3D data the
   2D-only fit stays more than 45° off in hand orientation on 28% of frames whatever the

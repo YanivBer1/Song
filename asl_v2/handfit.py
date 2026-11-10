@@ -31,7 +31,9 @@ IDX = np.array([2, 3, 4] + list(range(5, 21)))
 W2D = np.ones(len(IDX))
 W2D[np.isin(IDX, [4, 8, 12, 16, 20])] = 1.3
 WZ, WT_ANG, WT_ROT, WREG, WWRIST = 0.30, 0.03, 0.06, 0.004, 0.7
-W_DIP, W_ABD = float(os.environ.get("ASL_WDIP", 0.0)), float(os.environ.get("ASL_WABD", 0.0))
+# DIP-PIP coupling on: finger-joint error against the 3D reference 17.5 -> 16.3 deg; the
+# fingers-together prior gave nothing on top and stays off
+W_DIP, W_ABD = float(os.environ.get("ASL_WDIP", 0.05)), float(os.environ.get("ASL_WABD", 0.0))
 WZ3D = float(os.environ.get("ASL_WZ3D", 0.8))             # depth weight on frames with a 3D-model reading
 
 EURO_FC, EURO_BETA = 1.5, 1.0                              # input de-jitter (One-Euro)
