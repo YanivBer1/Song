@@ -15,7 +15,7 @@ import subprocess
 import numpy as np
 
 from .extract import VIDEO_BASE
-from .generate import build_motion
+from .generate import build_motion, save_motion
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORDS = sorted(os.path.splitext(f)[0] for f in os.listdir(os.path.join(ROOT, "cache", "tracks"))
@@ -46,7 +46,7 @@ def main():
         seq, info = build_motion([dict(sign=w, url=f"{VIDEO_BASE}/{w}.mp4") for w in ph],
                                  assembly=a.assembly, return_info=True)
         p = os.path.join(out, f"p{i:02d}.npy")
-        np.save(p, seq.astype(np.float32))
+        save_motion(p, seq, info)
         paths.append(p)
         if "segments" in info:
             junction[f"p{i:02d}.npy"] = (junction_continuity(seq, info["segments"]),

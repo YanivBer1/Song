@@ -173,6 +173,21 @@ def make_material(name, tex=None, normal=None, color=(0.8, 0.8, 0.8), rough=0.5,
     return m
 
 
+def tint(mat, color, factor):
+    """Multiply a material's base-colour texture by `color` (strength `factor`)."""
+    nt = mat.node_tree
+    tex = [n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image.colorspace_settings.name != "Non-Color"]
+    if not tex:
+        return
+    mix = nt.nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.blend_type = "MULTIPLY"
+    mix.inputs["Factor"].default_value = factor
+    mix.inputs["B"].default_value = (*color, 1)
+    nt.links.new(tex[0].outputs["Color"], mix.inputs["A"])
+    nt.links.new(mix.outputs["Result"], nt.nodes["Principled BSDF"].inputs["Base Color"])
+
+
 def make_mesh(name, verts_bl, faces, uvs=None, material=None, smooth=True):
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(verts_bl.tolist(), [], [f[0] for f in faces])
@@ -287,6 +302,9 @@ def build_character(skin="young_caucasian_male", clothes="male_casualsuit01", ha
     skin_mat = read_mhmat(os.path.join(skin_dir, f"{skin}.mhmat"))
     skin_m = make_material("skin", tex=os.path.join(skin_dir, skin_mat.get("diffuseTexture", "")),
                            color=(0.8, 0.6, 0.5), rough=0.48, sss=0.12, spec=0.35)
+    # Legibility: the MakeHuman skin renders very pale. A warmer, deeper skin tone against a
+    # dark top (what interpreters wear) makes the hands and their finger shadows read clearly.
+    tint(skin_m, (0.74, 0.55, 0.45), 0.85)
     body_faces = [f for f in faces if not any(v in hidden for v in f[0])]
     body = make_mesh("body", to_blender(verts), body_faces, uvs, skin_m)
     skin_to_rig(body, rig, weights)
@@ -314,6 +332,8 @@ def build_character(skin="young_caucasian_male", clothes="male_casualsuit01", ha
                               rough={"clothes": 0.85, "teeth": 0.25, "tongue": 0.35}.get(kind, 0.6),
                               alpha=kind in ("hair", "eyebrows", "eyelashes"),
                               spec=0.3)
+        if kind == "clothes":
+            tint(m, (0.10, 0.11, 0.15), 0.9)             # dark charcoal-navy outfit
         o = make_mesh(kind, to_blender(pos), pfaces, puv, m)
         skin_to_rig(o, rig, proxy_weights(info, weights))
         objs[kind] = o
@@ -505,6 +525,38 @@ ROM = {"01": 95.0, "02": 110.0, "03": 90.0}
 ROM_THUMB = {"01": 70.0, "02": 70.0, "03": 85.0}
 
 
+FIT_ORDER = ("thumb", "index", "middle", "ring", "pinky")
+
+
+def _gauss(x, sigma):
+    """Gaussian filter along axis 0 with edge padding (numpy only; Blender env has no scipy)."""
+    x = np.asarray(x, float)
+    if sigma <= 0 or len(x) < 3:
+        return x
+    r = int(3 * sigma + 0.5)
+    k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+    k /= k.sum()
+    xp = np.concatenate([np.repeat(x[:1], r, 0), x, np.repeat(x[-1:], r, 0)])
+    return np.stack([np.tensordot(k, xp[i:i + 2 * r + 1], axes=(0, 0)) for i in range(len(x))])
+
+
+def _blocks(mask):
+    t, T = 0, len(mask)
+    while t < T:
+        if not mask[t]:
+            t += 1
+            continue
+        u = t
+        while u < T and mask[u]:
+            u += 1
+        yield t, u
+        t = u
+
+
+def _minjerk(t):
+    return 10 * t ** 3 - 15 * t ** 4 + 6 * t ** 5
+
+
 class Retargeter:
     def __init__(self, rig, objs=None):
         self.rig = rig
@@ -529,6 +581,11 @@ class Retargeter:
         if objs is not None:
             self._build_collision(objs)
         self._calibrate_hinges()
+        self.hinge_local = {}
+        for s in "lr":                       # elbow hinge axis in the upper arm's rest frame
+            Ru = self.rest[f"upperarm_{s}"][:3, :3]
+            h = np.cross(Ru[:, 1], np.array([0.0, -1.0, 0.0]))
+            self.hinge_local[s] = Ru.T @ (h / np.linalg.norm(h))
         # palm normals in hand-bone local space at rest (same formula as at runtime)
         self.palm_local = {}
         for s in "lr":
@@ -819,6 +876,250 @@ class Retargeter:
         self.frame_t = -1
         return plan
 
+    def _fit_frame(self, s):
+        fit = getattr(self, "fit", None)
+        t = getattr(self, "frame_t", 0)
+        if fit is None or t >= len(fit["valid"]) or not fit["valid"][t]:
+            return None
+        i = "lr".index(s)
+        return fit["R"][t, i], fit["F"][t, i]
+
+    BAKE_ARM = ("clavicle", "upperarm", "lowerarm", "hand")
+
+    def bake(self, seq, segments=None, fit=None, objs=None):
+        """Solve the whole sequence, then make it temporally coherent:
+          1. per-frame solve (IK + end-effector correction + collision push-out);
+          2. the per-frame corrections are smoothed over time and the frames re-posed with
+             them (no frame-to-frame jitter from independent corrections);
+          3. joint rotations are low-pass filtered;
+          4. transitions between signs are generated in JOINT space: every joint goes from
+             its pose at the end of one sign to its pose at the start of the next along a
+             velocity-matched Hermite curve, fingers arriving early (pre-shaping). The arm
+             therefore moves like an arm - no hand spinning through impossible wrist angles;
+          5. facial expression weights: symmetric, damped, smoothed, neutral in holds."""
+        T = len(seq)
+        self.fit = fit
+        solve = np.ones(T, bool)
+        hold = np.zeros(T, bool)
+        for kind, a, b, _ in (segments or []):
+            if kind == "transition":
+                solve[a:b] = False
+            elif kind == "hold":
+                hold[a:b] = True
+        rig = self.rig
+        names = [pb.name for pb in rig.pose.bones]
+        corr = np.zeros((T, 2, 2))
+        zx = np.zeros((T, 2))
+        for t in np.flatnonzero(solve):
+            self.frame_t = t - 1
+            self.pose(seq[t])
+            for i, s in enumerate("lr"):
+                corr[t, i], zx[t, i] = self.last_corr[s], self.last_zx[s]
+        for a, b in _blocks(solve):
+            zmin = np.array([zx[max(a, t - 2):min(b, t + 3)].min(0) for t in range(a, b)])
+            zx[a:b] = _gauss(zmin, 2.0)
+            corr[a:b] = _gauss(corr[a:b], 2.0)
+        Q = np.zeros((T, len(names), 4))
+        Q[:, :, 0] = 1
+        last = [None] * T
+        for t in np.flatnonzero(solve):
+            self.frame_t = t
+            self._pose_once(seq[t], {"l": corr[t, 0], "r": corr[t, 1]}, {"l": zx[t, 0], "r": zx[t, 1]})
+            Q[t] = [tuple(pb.rotation_quaternion) for pb in rig.pose.bones]
+            last[t] = {k: dict(v) for k, v in self.last.items()}
+        # temporal coherence of rotations (sign-continuous quaternions, light low-pass)
+        slow = np.array([n.rsplit("_", 1)[0] in self.BAKE_ARM or n.split("_")[0] in ("neck", "head", "spine")
+                         for n in names])
+        for a, b in _blocks(solve):
+            for t in range(a + 1, b):
+                flip = np.sum(Q[t] * Q[t - 1], axis=1) < 0
+                Q[t, flip] *= -1
+            Q[a:b, slow] = _gauss(Q[a:b, slow], 1.5)
+            Q[a:b, ~slow] = _gauss(Q[a:b, ~slow], 0.5)
+            Q[a:b] /= np.linalg.norm(Q[a:b], axis=2, keepdims=True)
+        # The arm was low-pass filtered; restore each hand's fitted WORLD orientation on top of
+        # the smoothed arm so the handshape/orientation solved against the image is kept exactly.
+        for t in np.flatnonzero(solve):
+            if last[t] is None or "hand_R" not in last[t].get("l", {}):
+                continue
+            for name, q in zip(names, Q[t]):
+                rig.pose.bones[name].rotation_quaternion = q
+            bpy.context.view_layer.update()
+            for s in "lr":
+                hb = rig.pose.bones[f"hand_{s}"]
+                par = np.array(hb.parent.matrix)[:3, :3]
+                chain = par @ self.rest[hb.parent.name][:3, :3].T @ self.rest[hb.name][:3, :3]
+                Q[t, names.index(hb.name)] = tuple(Matrix((chain.T @ last[t][s]["hand_R"]).tolist()).to_quaternion())
+        # joint-space transitions
+        finger = np.array([n in self.finger_bones for n in names])
+        for kind, a, b, _ in (segments or []):
+            if kind != "transition" or a == 0 or b >= T:
+                continue
+            n, D = b - a, b - a + 1
+            for j in range(len(names)):
+                qa, qb = Quaternion(Q[a - 1, j]), Quaternion(Q[b, j])
+                if qa.dot(qb) < 0:
+                    qb.negate()
+                if finger[j]:
+                    for k in range(1, n + 1):
+                        Q[a + k - 1, j] = tuple(qa.slerp(qb, _minjerk(min(1.0, (k / D) / 0.75))))
+                    continue
+                if names[j].rsplit("_", 1)[0] in ("upperarm", "lowerarm", "hand"):
+                    # Swing-twist: the bend (swing) and the roll about the bone (twist) are
+                    # interpolated separately, so an elbow goes monotonically from one flexion
+                    # to the other instead of straightening out on the way.
+                    sa, ta = qa.to_swing_twist("Y")
+                    sb, tb = qb.to_swing_twist("Y")
+                    if sa.dot(sb) < 0:
+                        sb.negate()
+                    dt = (tb - ta + np.pi) % (2 * np.pi) - np.pi
+                    rs = np.array((sa.inverted() @ sb).to_exponential_map())
+                    for k in range(1, n + 1):
+                        h = _minjerk(k / D)
+                        v = h * rs
+                        sw = sa @ Quaternion(Vector(v).normalized(), float(np.linalg.norm(v))) \
+                            if np.linalg.norm(v) > 1e-9 else sa
+                        Q[a + k - 1, j] = tuple(sw @ Quaternion((0, 1, 0), ta + h * dt))
+                    continue
+                r = np.array((qa.inverted() @ qb).to_exponential_map())
+
+                def vel(q0, q1):
+                    q0, q1 = Quaternion(q0), Quaternion(q1)
+                    if q0.dot(q1) < 0:
+                        q1.negate()
+                    return np.array((q0.inverted() @ q1).to_exponential_map())
+                wa = vel(Q[a - 2, j], Q[a - 1, j]) if a >= 2 and solve[a - 2] else np.zeros(3)
+                wb = vel(Q[b, j], Q[b + 1, j]) if b + 1 < T and solve[b + 1] else np.zeros(3)
+                cap = (1.2 * np.linalg.norm(r) + 0.1) / D
+                for w in (wa, wb):
+                    m = np.linalg.norm(w)
+                    if m > cap:
+                        w *= cap / m
+                for k in range(1, n + 1):
+                    t = k / D
+                    h1 = t - 6 * t ** 3 + 8 * t ** 4 - 3 * t ** 5
+                    h4 = -4 * t ** 3 + 7 * t ** 4 - 3 * t ** 5
+                    h5 = 10 * t ** 3 - 15 * t ** 4 + 6 * t ** 5
+                    v = h1 * wa * D + h4 * wb * D + h5 * r
+                    Q[a + k - 1, j] = tuple(qa @ Quaternion(Vector(v).normalized(), float(np.linalg.norm(v)))
+                                            if np.linalg.norm(v) > 1e-9 else qa)
+        # Arms during transitions: the HAND travels a smooth, nearly straight path in space
+        # (how people reach - Flash & Hogan's minimum-jerk hand paths), the elbow follows by
+        # inverse kinematics, and the forearm roll is interpolated. (Pure joint interpolation
+        # swings the arm out sideways like a wing.)
+        def arm_points(t):
+            for name, q in zip(names, Q[t]):
+                rig.pose.bones[name].rotation_quaternion = q
+            bpy.context.view_layer.update()
+            return {s: (np.array(rig.pose.bones[f"lowerarm_{s}"].head), np.array(rig.pose.bones[f"hand_{s}"].head))
+                    for s in "lr"}
+
+        ju = {s: names.index(f"upperarm_{s}") for s in "lr"}
+        jl = {s: names.index(f"lowerarm_{s}") for s in "lr"}
+        L = {s: (rig.data.bones[f"upperarm_{s}"].length, rig.data.bones[f"lowerarm_{s}"].length) for s in "lr"}
+        for kind, a, b, _ in (segments or []):
+            if kind != "transition" or a == 0 or b >= T:
+                continue
+            n, D = b - a, b - a + 1
+            Pa, Pb = arm_points(a - 1), arm_points(b)
+            Pa0 = arm_points(a - 2) if a >= 2 and solve[a - 2] else Pa
+            Pb1 = arm_points(b + 1) if b + 1 < T and solve[b + 1] else Pb
+            tw = {}
+            for s in "lr":
+                ta = Quaternion(Q[a - 1, jl[s]]).to_swing_twist("Y")[1]
+                tb = Quaternion(Q[b, jl[s]]).to_swing_twist("Y")[1]
+                tw[s] = (ta, (tb - ta + np.pi) % (2 * np.pi) - np.pi)
+            for k in range(1, n + 1):
+                t = k / D
+                h0 = 1 - 10 * t ** 3 + 15 * t ** 4 - 6 * t ** 5
+                h1 = t - 6 * t ** 3 + 8 * t ** 4 - 3 * t ** 5
+                h4 = -4 * t ** 3 + 7 * t ** 4 - 3 * t ** 5
+                h5 = 10 * t ** 3 - 15 * t ** 4 + 6 * t ** 5
+                arm_points(a + k - 1)                      # poses clavicle/spine for this frame
+                for s in "lr":
+                    (Ea, Wa), (Eb, Wb) = Pa[s], Pb[s]
+                    va, vb = Wa - Pa0[s][1], Pb1[s][1] - Wb
+                    dist = np.linalg.norm(Wb - Wa)
+                    cap = (1.2 * dist + 0.03) / D
+                    for v in (va, vb):
+                        m = np.linalg.norm(v)
+                        if m > cap:
+                            v *= cap / m
+                    W = h0 * Wa + h1 * va * D + h4 * vb * D + h5 * Wb
+                    W[1] -= min(0.05, 0.2 * dist) * np.sin(np.pi * t)       # slight forward arc
+                    E_hint = (1 - h5) * Ea + h5 * Eb
+                    S = np.array(rig.pose.bones[f"upperarm_{s}"].head)
+                    la, lb = L[s]
+                    u = W - S
+                    dd = float(np.clip(np.linalg.norm(u), abs(la - lb) + 1e-3, la + lb - 1e-3))
+                    u /= np.linalg.norm(u) + 1e-12
+                    W = S + u * dd
+                    cos_a = np.clip((la * la + dd * dd - lb * lb) / (2 * la * dd), -1, 1)
+                    pole = E_hint - S
+                    pv = pole - u * (pole @ u)
+                    if np.linalg.norm(pv) < 1e-6:
+                        pv = np.array([0, 0, -1.0]) - u * (-u[2])
+                    pv /= np.linalg.norm(pv)
+                    E = S + la * (cos_a * u + np.sqrt(1 - cos_a ** 2) * pv)
+                    du, dv = (E - S) / la, (W - E) / np.linalg.norm(W - E)
+                    cl = rig.pose.bones[f"clavicle_{s}"]
+                    chain_u = np.array(cl.matrix)[:3, :3] @ self.rest[cl.name][:3, :3].T @ self.rest[f"upperarm_{s}"][:3, :3]
+                    R_min = np.array(Vector(chain_u[:, 1]).rotation_difference(Vector(du)).to_matrix()) @ chain_u
+                    nrm = np.cross(du, dv)
+                    sin_f = np.linalg.norm(nrm)
+                    wgt = float(np.clip(sin_f / 0.3, 0.0, 1.0))
+                    n_e = wgt * nrm / (sin_f + 1e-9) + (1 - wgt) * (R_min @ self.hinge_local[s])
+                    R_u = _frame(du, n_e) @ _frame(np.array([0, 1.0, 0]), self.hinge_local[s]).T
+                    chain_l = R_u @ self.rest[f"upperarm_{s}"][:3, :3].T @ self.rest[f"lowerarm_{s}"][:3, :3]
+                    R_l0 = np.array(Vector(chain_l[:, 1]).rotation_difference(Vector(dv)).to_matrix()) @ chain_l
+                    sw0 = Matrix((chain_l.T @ R_l0).tolist()).to_quaternion().to_swing_twist("Y")[0]
+                    Q[a + k - 1, ju[s]] = tuple(Matrix((chain_u.T @ R_u).tolist()).to_quaternion())
+                    Q[a + k - 1, jl[s]] = tuple(sw0 @ Quaternion((0, 1, 0), tw[s][0] + h5 * tw[s][1]))
+        # facial expression
+        expr = None
+        if objs is not None:
+            feats = [face_features(f[FACE:FACE + 468, :2]) for f in seq]
+            neutral = neutral_face([feats[t] for t in np.flatnonzero(solve & ~hold)] or feats)
+            keys = list(expression_weights(feats[0], neutral))
+            W = np.array([[expression_weights(ft, neutral)[k] for k in keys] for ft in feats])
+            base = expression_weights(neutral, neutral)
+            W[hold] = [base[k] for k in keys]
+            for t0, t1 in [(a, b) for kind, a, b, _ in (segments or []) if kind == "transition"]:
+                lo, hi = max(t0 - 1, 0), min(t1, T - 1)
+                for k in range(t0, t1):
+                    u = (k - lo) / max(hi - lo, 1)
+                    W[k] = (1 - u) * W[lo] + u * W[hi]
+            for kl in [k for k in keys if "-left-" in k]:          # symmetric brows / eyes
+                kr = kl.replace("-left-", "-right-")
+                m = (W[:, keys.index(kl)] + W[:, keys.index(kr)]) / 2
+                W[:, keys.index(kl)] = W[:, keys.index(kr)] = m
+            gain = {"mouth-open": 0.55, "mouth-pursing": 0.4, "mouth-corner-puller": 1.0}
+            for k in keys:
+                g = gain.get(k, 0.7 if k.startswith("eyebrows") else 0.6)
+                W[:, keys.index(k)] *= g
+            W = np.clip(_gauss(W, 3.0), 0, 1)
+            expr = (keys, W)
+        self.baked = dict(names=names, Q=Q, expr=expr, last=last, solve=solve, hold=hold)
+        return self.baked
+
+    def apply(self, t, objs=None):
+        bk = self.baked
+        for name, q in zip(bk["names"], bk["Q"][t]):
+            self.rig.pose.bones[name].rotation_quaternion = q
+        if bk["last"][t] is not None:
+            self.last = bk["last"][t]
+        if objs is not None and bk["expr"] is not None:
+            keys, W = bk["expr"]
+            for kind in ("body", "eyebrows", "eyelashes", "teeth", "tongue"):
+                o = objs.get(kind)
+                if o is None or o.data.shape_keys is None:
+                    continue
+                kb = o.data.shape_keys.key_blocks
+                for k, v in zip(keys, W[t]):
+                    if k in kb:
+                        kb[k].value = float(v)
+        bpy.context.view_layer.update()
+
     def pose(self, f, iters=2):
         """Retarget one frame. With calibration, a closed-loop end-effector correction
         moves each wrist target until the avatar's knuckles+fingertips land where the
@@ -828,7 +1129,9 @@ class Retargeter:
             return self._pose_once(f, {})
         self.frame_t = getattr(self, "frame_t", -1) + 1
         plan = getattr(self, "depth_plan", None)
-        if plan is not None and self.frame_t < len(plan["l"]):
+        if getattr(self, "fit", None) is not None:
+            pass                                   # the hand fit already resolved depth
+        elif plan is not None and self.frame_t < len(plan["l"]):
             if plan["l"][self.frame_t]:
                 f = self._mirror_depth(f, LH)
             if plan["r"][self.frame_t]:
@@ -871,6 +1174,7 @@ class Retargeter:
             if not moved:
                 break
             self._pose_once(f, corr, zx)
+        self.last_corr, self.last_zx = corr, zx
 
     def _pose_once(self, f, corr, zx=None):
         zx = zx or {}
@@ -937,9 +1241,26 @@ class Retargeter:
             arm_dirs = {f"upperarm_{s}": canon_dir(E - S3),
                         f"lowerarm_{s}": canon_dir(T - E)}
             head_rel, tgt = {}, None
+            fit = self._fit_frame(s)
             for part in ORDER:
                 name = f"{part}_{s}"
                 a, b = CHAINS[name]
+                if fit is not None and (part == "hand" or name in self.finger_bones):
+                    # avatar-space hand fit (asl_v2.handfit): hand orientation + finger joint
+                    # rotations solved against the 2D landmarks under joint limits
+                    if part == "hand":
+                        R_final = fit[0]
+                        qb = Matrix((chain_rest(name).T @ R_final).tolist()).to_quaternion()
+                    else:
+                        fn_, k_ = part.split("_")
+                        Lm = fit[1][FIT_ORDER.index(fn_) * 3 + int(k_) - 1]
+                        R_final = chain_rest(name) @ Lm
+                        qb = Matrix(Lm.tolist()).to_quaternion()
+                    posed[name] = R_final
+                    rig.pose.bones[name].rotation_quaternion = qb
+                    if part == "hand":
+                        self.last[s]["hand_R"] = R_final
+                    continue
                 d = arm_dirs[name] if name in arm_dirs else to_dir(f[b]) - to_dir(f[a])
                 if tgt is not None and name in self.finger_bones and part.endswith("_01"):
                     # Position-based finger retargeting: aim each bone from its *actual posed
@@ -981,11 +1302,24 @@ class Retargeter:
                 q = Vector(y0).rotation_difference(Vector(d)).to_matrix()
                 R_min = np.array(q) @ RA
                 R_final = R_min
+                if part == "upperarm":
+                    # The elbow is a hinge: roll the upper arm (humeral rotation) so its hinge
+                    # axis is the axis the forearm actually bends about. The elbow then deforms
+                    # like an elbow and joint-space transitions flex it monotonically.
+                    v_f = arm_dirs[f"lowerarm_{s}"] / (np.linalg.norm(arm_dirs[f"lowerarm_{s}"]) + 1e-9)
+                    nrm = np.cross(d, v_f)
+                    sin_f = np.linalg.norm(nrm)
+                    n_min = R_min @ self.hinge_local[s]
+                    wgt = float(np.clip(sin_f / 0.3, 0.0, 1.0))
+                    n_e = wgt * nrm / (sin_f + 1e-9) + (1 - wgt) * n_min
+                    R_final = _frame(d, n_e) @ _frame(np.array([0, 1.0, 0]), self.hinge_local[s]).T
                 if part in ("hand", "lowerarm"):
                     off = LH if s == "l" else RH
                     h = to_dir(f[off:off + 21])
                     n_t = np.cross(h[5] - h[0], h[17] - h[0])
                     n_t /= np.linalg.norm(n_t) + 1e-9
+                    if fit is not None:
+                        n_t = fit[0] @ self.palm_local[s]
                     if part == "hand":
                         R_final = _frame(d, n_t) @ _frame(np.array([0, 1.0, 0]), self.palm_local[s]).T
                     else:   # forearm takes half of the hand's twist (pronation)

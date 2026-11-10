@@ -34,7 +34,7 @@ def setup_scene(rig, res, samples):
     sc.render.use_persistent_data = True
     sc.render.resolution_x, sc.render.resolution_y = res
     sc.view_settings.view_transform = "AgX"
-    sc.view_settings.look = "AgX - Base Contrast"
+    sc.view_settings.look = "AgX - Medium High Contrast"
 
     world = bpy.data.worlds.new("w")
     world.use_nodes = True
@@ -76,7 +76,7 @@ def setup_scene(rig, res, samples):
     bpy.ops.mesh.primitive_plane_add(size=20, location=(0, 1.2, centre_z), rotation=(np.pi / 2, 0, 0))
     m = bpy.data.materials.new("backdrop")
     m.use_nodes = True
-    m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.42, 0.45, 0.5, 1)
+    m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.62, 0.64, 0.67, 1)
     m.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.95
     bpy.context.object.data.materials.append(m)
 
@@ -125,46 +125,39 @@ def main():
         cam.location = (mx, -5.0, mz - 0.30 * sw)
     retarget = mh_avatar.Retargeter(rig, objs)
     sc = bpy.context.scene
+
+    def load(path):
+        """Motion + its optional avatar-space hand fit and phrase segments (same basename)."""
+        seq = np.load(path)
+        base = path[:-4]
+        fit = dict(np.load(base + ".fit.npz")) if os.path.exists(base + ".fit.npz") else None
+        seg = json.load(open(base + ".segments.json")) if os.path.exists(base + ".segments.json") else None
+        retarget.bake(seq, seg, fit, objs)
+        return seq
+
+    def shot(i, path):
+        retarget.apply(i, objs)
+        sc.render.filepath = path
+        bpy.ops.render.render(write_still=True)
+
     if args.batch:
         for job in json.load(open(args.batch)):
-            seq = np.load(job["motion"])
-            feats = [mh_avatar.face_features(f[mh_avatar.FACE:mh_avatar.FACE + 468, :2]) for f in seq]
-            neutral = mh_avatar.neutral_face(feats)
-            retarget.plan_depth(seq)
-            for i in range(len(seq)):              # pose every frame: keeps temporal state honest
-                retarget.pose(seq[i])
-                if i in job["frames"]:
-                    retarget.set_expression(seq[i], neutral, objs)
-                    bpy.context.view_layer.update()
-                    sc.render.filepath = f"{job['prefix']}_{i:04d}.png"
-                    bpy.ops.render.render(write_still=True)
+            load(job["motion"])
+            for i in job["frames"]:
+                shot(i, f"{job['prefix']}_{i:04d}.png")
         return
-    seq = np.load(args.motion)
-    feats = [mh_avatar.face_features(f[mh_avatar.FACE:mh_avatar.FACE + 468, :2]) for f in seq]
-    neutral = mh_avatar.neutral_face(feats)
-
-    retarget.plan_depth(seq)
-
-    def pose(f):
-        retarget.pose(f)
-        retarget.set_expression(f, neutral, objs)
-
+    t = time.time()
+    seq = load(args.motion)
+    print(f"motion solved and baked in {time.time() - t:.1f}s", flush=True)
     if args.frames:
         for i in map(int, args.frames.split(",")):
-            retarget.frame_t = i - 1               # index the depth plan by the real frame
-            pose(seq[i])
-            bpy.context.view_layer.update()
-            sc.render.filepath = f"{os.path.splitext(args.output)[0]}_{i:04d}.png"
-            bpy.ops.render.render(write_still=True)
+            shot(i, f"{os.path.splitext(args.output)[0]}_{i:04d}.png")
         return
 
     tmp = tempfile.mkdtemp(prefix="aslhuman_")
     t = time.time()
-    for i, f in enumerate(seq):
-        pose(f)
-        bpy.context.view_layer.update()
-        sc.render.filepath = os.path.join(tmp, f"{i:05d}.png")
-        bpy.ops.render.render(write_still=True)
+    for i in range(len(seq)):
+        shot(i, os.path.join(tmp, f"{i:05d}.png"))
         if i % 10 == 0:
             el = time.time() - t
             print(f"frame {i + 1}/{len(seq)}  {el / (i + 1):.1f}s/frame", flush=True)

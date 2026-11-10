@@ -46,6 +46,15 @@ def lookup(words):
     return matches
 
 
+def save_motion(path, seq, info):
+    """Write the motion, its phrase segments and the avatar-space hand fit (same basename)."""
+    from .handfit import fit_sequence
+    np.save(path, seq.astype(np.float32))
+    segs = [list(map(lambda v: v if isinstance(v, str) else int(v), s)) for s in info.get("segments", [])]
+    json.dump(segs, open(path[:-4] + ".segments.json", "w"))
+    np.savez_compressed(path[:-4] + ".fit.npz", **fit_sequence(seq, segs))
+
+
 def tokens(text):
     return [t for t in (re.sub(r"[^\w\s]", "", tok).lower().strip() for tok in text.split()) if t]
 
@@ -107,7 +116,7 @@ def main():
     else:
         matches = lookup(tokens(args.text))
     print(json.dumps(matches, indent=2))
-    seq = build_motion(matches)
+    seq, info = build_motion(matches, return_info=True)
     print(f"motion: {len(seq)} frames ({len(seq) / 30:.1f}s)")
 
     if args.renderer == "2d":
@@ -115,7 +124,7 @@ def main():
         write_video(seq, out)
     else:
         motion_file = os.path.splitext(out)[0] + ".motion.npy"
-        np.save(motion_file, seq.astype(np.float32))
+        save_motion(motion_file, seq, info)
         blender_py = os.path.join(HERE, ".venv-blender", "bin", "python")
         script = "render_human.py" if args.renderer == "human" else "render3d.py"
         subprocess.run([blender_py, os.path.join(HERE, "asl_v2", script), motion_file, out,

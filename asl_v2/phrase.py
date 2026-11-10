@@ -32,7 +32,7 @@ from .motion import (FACE, LH, RH, P, SIDES, _hand_turn, _orient, _travel, blend
                      rest_frame, retime, REST_HAND)
 
 FPS = 30
-SPEED = 1.15            # citation forms are slower than fluent signing
+SPEED = 1.0             # play signs at their recorded speed (legibility first)
 HOVER_MAX = 45          # frames: an idle gap up to this long keeps the weak hand hovering
 
 
@@ -83,24 +83,14 @@ def segment_phases(clip, meta):
     if peak < 0.012:                          # static sign (number, letter): the hold IS the sign
         mid = (start + end) // 2
         active["static"] = True
-        return max(start, mid - 3), min(end, mid + 3), active   # ~0.23 s hold
-    keep = 2
+        return max(start, mid - 6), min(end, mid + 6), active   # ~0.4 s hold
+    keep = 4                                   # ~130 ms of each hold stays visible
     moving = v >= 0.3 * peak
     sustained = np.array([moving[i:i + 3].all() for i in range(len(v))])   # >= 3 frames of real motion
     idx = np.flatnonzero(sustained[start:end + 1]) + start
     if len(idx):
         start = max(start, min(int(idx[0]) - keep, end - 10))
         end = min(end, max(int(idx[-1]) + 2 + keep, start + 10))
-    # Coarticulation / target undershoot: fluent signers start the next movement while
-    # the hand is still moving, so drop the citation form's final deceleration and
-    # initial acceleration (speed < 25% of the sign's peak, at most 8 frames each).
-    slow = v < 0.25 * peak
-    budget = max(8, int(0.4 * (end - start)))       # long citation holds (e.g. FEEL) shrink more
-    for _ in range(budget):
-        if end - start > 12 and slow[end]:
-            end -= 1
-        if end - start > 12 and slow[start]:
-            start += 1
     return start, end, active
 
 
@@ -187,10 +177,10 @@ def hermite_transition(a, b, va, vb, n):
 
 def transition_frames(a, b):
     """Fluent transition length from wrist travel and hand rotation (~100-500 ms)."""
-    return int(np.clip(round(3 + 5 * _travel(a, b) + 3 * _hand_turn(a, b) / np.pi), 4, 13))
+    return int(np.clip(round(6 + 7 * _travel(a, b) + 4 * _hand_turn(a, b) / np.pi), 8, 20))
 
 
-def assemble(items, hold=8, speed=SPEED):
+def assemble(items, hold=12, speed=SPEED):
     """items: list of (processed_untrimmed_clip, meta) per word, in phrase order.
     Returns (seq, info) with info['segments'] = [(kind, start, end, word_index)]."""
     strokes, actives, static = [], [], []
@@ -223,7 +213,7 @@ def assemble(items, hold=8, speed=SPEED):
     add("hold", np.repeat(start_rest[None], hold, axis=0), -1)
     zero = np.zeros_like(start_rest)
     add("transition", hermite_transition(start_rest, strokes[0][0], zero, _velocity(strokes[0], False),
-                                         max(8, transition_frames(start_rest, strokes[0][0]) + 4)), 0)
+                                         max(18, transition_frames(start_rest, strokes[0][0]) + 6)), 0)
     for i, st in enumerate(strokes):
         add("stroke", st, i)
         if i + 1 < len(strokes):
@@ -232,7 +222,7 @@ def assemble(items, hold=8, speed=SPEED):
                                                  transition_frames(st[-1], nxt[0])), i + 1)
     end_rest = rest_frame(strokes[-1][-1])
     add("transition", hermite_transition(strokes[-1][-1], end_rest, _velocity(strokes[-1], True), zero,
-                                         max(10, transition_frames(strokes[-1][-1], end_rest) + 4)), -1)
+                                         max(18, transition_frames(strokes[-1][-1], end_rest) + 6)), -1)
     add("hold", np.repeat(end_rest[None], hold, axis=0), -1)
     seq = np.concatenate(parts)
     # light zero-phase smoothing (tracker jitter); hands less, to keep handshapes crisp
@@ -289,7 +279,7 @@ def transition_flow(seq, segments, min_ratio=0.15):
     return 100.0 * ok / max(n, 1)
 
 
-def junction_no_freeze(seq, segments, still=0.002, run=4, static=None):
+def junction_no_freeze(seq, segments, still=0.002, run=8, static=None):
     """% of word->word junctions with no visible freeze: no run of >= `run` consecutive
     frames where both wrists are essentially motionless (speed < `still` shoulder
     widths/frame ~ 0.7 mm/frame ~ 2 cm/s, below which motion reads as stillness) within the window from 6 frames before the

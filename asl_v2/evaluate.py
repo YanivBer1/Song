@@ -114,7 +114,7 @@ SEGS = [(0, 1), (1, 2), (2, 3), (3, 4), (5, 6), (6, 7), (7, 8), (9, 10), (10, 11
         (13, 14), (14, 15), (15, 16), (17, 18), (18, 19), (19, 20), (0, 5), (0, 17), (5, 17)]
 
 
-def evaluate(seq, valid=None):
+def evaluate(seq, valid=None, path=None):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     rig, objs = mh_avatar.build_character()
     rt = mh_avatar.Retargeter(rig, objs)
@@ -143,14 +143,16 @@ def evaluate(seq, valid=None):
             yc, yp = np.array(b.matrix_local.col[1][:3]), np.array(b.parent.matrix_local.col[1][:3])
             rest_angle[b.name] = np.degrees(np.arccos(np.clip(yc @ yp, -1, 1)))
     T = len(seq)
-    rt.plan_depth(seq)
+    base = path[:-4] if path else None
+    fit = dict(np.load(base + ".fit.npz")) if base and os.path.exists(base + ".fit.npz") else None
+    seg = json.load(open(base + ".segments.json")) if base and os.path.exists(base + ".segments.json") else None
+    bk = rt.bake(seq, seg, fit)                 # exactly what the renderer shows
     rec = {k: [] for k in ("shape", "wrist", "elbow", "limits", "body", "hands")}
     joints_all = []
     depsgraph = bpy.context.evaluated_depsgraph_get()
     for t in range(T):
         f = seq[t]
-        rt.pose(f)
-        bpy.context.view_layer.update()
+        rt.apply(t)
         pb = rig.pose.bones
         av = {}
         for s, off in (("l", LH), ("r", RH)):
@@ -163,7 +165,8 @@ def evaluate(seq, valid=None):
             # screen-space canonical coords of the avatar: x right, y down, unit = shoulder width
             scr = np.stack([(pts[:, 0] - mid[0]) / sw, -(pts[:, 2] - mid[2]) / sw], 1)
             tgt = f[off:off + 21, :2]
-            ok = valid is None or valid[t, 0 if s == "l" else 1]
+            # fidelity is judged where there is ground truth: sign frames, not synthesised transitions
+            ok = bk["solve"][t] and (valid is None or valid[t, 0 if s == "l" else 1])
             if ok:
                 hand_len = np.linalg.norm(tgt[12] - tgt[0]) + 1e-9
                 knuckles = [5, 9, 13, 17]
@@ -255,7 +258,7 @@ def main():
     for path in a.motion:
         seq = np.load(path)
         valid = np.load(a.valid) if a.valid else None
-        results[os.path.basename(path)] = res = evaluate(seq, valid)
+        results[os.path.basename(path)] = res = evaluate(seq, valid, path)
         print(os.path.basename(path), json.dumps(res), flush=True)
     if a.json:
         with open(a.json, "w") as fh:
