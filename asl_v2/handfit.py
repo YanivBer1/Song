@@ -224,7 +224,7 @@ def _fit_side(args):
     step = np.zeros(T)
     step[1:] = np.linalg.norm((targets[1:] - targets[:-1])[:, :, [0, 2]], axis=2).max(1) / (l3 + 1e-9)
     inst = np.array([np.percentile(step[max(0, t - 4):t + 5], 60) for t in range(T)])
-    tscale = 1.0 + 11.0 * np.clip((inst - 0.10) / 0.10, 0.0, 1.0)
+    tscale = 1.0 + 11.0 * np.clip((inst - 0.16) / 0.10, 0.0, 1.0)
     x_prev = R_prev = None
     for t in range(T):
         if not mask[t]:

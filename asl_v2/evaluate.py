@@ -232,6 +232,20 @@ def evaluate(seq, valid=None, path=None):
     print("hand-penetration frames:", [t for t, ok_ in enumerate(rec["hands"]) if not ok_], file=sys.stderr)
     print("transition frames:", [(int(a), int(b)) for a, b in mh_avatar._blocks(~bk["solve"])], file=sys.stderr)
     jerk = np.linalg.norm(np.diff(J, 3, axis=0), axis=2).mean()
+    sp_t = np.flatnonzero(spikes) + 1
+    in_tr = ~bk["solve"]
+    # the same rule applied to the signer's own tracked motion (sign frames), for reference
+    S_src = seq[:, 33:75] * sw
+    v_s = np.linalg.norm(np.diff(S_src, axis=0), axis=2)
+    dv_s = np.abs(np.diff(v_s, axis=0)).max(1)
+    spikes_s = dv_s > 4 * (np.median(dv_s) + 1e-6) + 0.004
+    src_t = np.flatnonzero(spikes_s) + 1
+    n_sign = max(int((~in_tr).sum()), 1)
+    extra = {
+        "smooth_sign_frames": round(100 - 100 * np.sum(~in_tr[sp_t]) / n_sign, 1),
+        "smooth_transition_frames": round(100 - 100 * np.sum(in_tr[sp_t]) / max(int(in_tr.sum()), 1), 1),
+        "source_smooth_sign_frames": round(100 - 100 * np.sum(~in_tr[src_t]) / n_sign, 1),
+    }
     pct = lambda x: round(100.0 * float(np.mean(x)), 1) if len(x) else None
     return {
         "frames": T,
@@ -247,6 +261,7 @@ def evaluate(seq, valid=None, path=None):
         "smooth_frames": pct(~spikes),
         "coverage": 100.0,
         "mean_jerk_mm_per_frame3": round(float(jerk) * 1000, 3),
+        **extra,
     }
 
 
