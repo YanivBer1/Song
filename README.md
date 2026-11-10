@@ -51,6 +51,21 @@ scripts/setup_v2.sh                       # venvs, word2vec, MakeHuman CC0 asset
 The v2 outputs are in `outputs/v2/`: `*_2d.mp4` (illustrated) and
 `*_realistic.mp4` (MakeHuman avatar).
 
+## Current pipeline (v5)
+
+```bash
+# text -> realistic avatar video (digits and $/% are spelled out: "$7 billion" -> seven billion dollars)
+.venv/bin/python -m asl_v2.generate "Hi, my name is John" --renderer human --res 1280x720 -o outputs/v5/john.mp4
+# 24-phrase test on the posed avatar          # visual QA sheets (source next to avatar) for every sign
+.venv/bin/python -m asl_v2.eval_suite --tag run   ;   .venv/bin/python -m asl_v2.qa_sheets prepare
+```
+
+No generative video model is involved: recorded sign clips are tracked (MediaPipe + RTMPose,
+fused per frame), a MakeHuman character's hand skeleton is fitted to the tracked 2D
+landmarks under finger/wrist/forearm joint limits (`asl_v2/handfit.py`), signs are joined
+with minimum-jerk hand paths, and Blender Cycles renders the frames. Method, measured
+results and known weak cases: [`docs/QUALITY.md`](docs/QUALITY.md). Videos: `outputs/v5/`.
+
 ## v3: frame-by-frame tracking, anatomical solver, seamless phrases
 
 See [`docs/QUALITY.md`](docs/QUALITY.md) for the method, the audits and the measured
