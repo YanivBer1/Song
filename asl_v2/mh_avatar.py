@@ -1161,7 +1161,10 @@ class Retargeter:
             bpy.context.view_layer.update()
             pen = {s: self._body_penetration(s) for s in "lr"}
             ov = self._hand_hand_overlap()
-            score = max(ov, 0.0) + max(pen.values())
+            touch = self._hands_overlap_in_source(f) and -0.06 < ov < -0.004
+            # penetration first; among penetration-free poses prefer the smaller gap between
+            # hands that overlap in the signer's image
+            score = max(ov, 0.0) + max(pen.values()) + (0.2 * (-ov - 0.004) if touch else 0.0)
             if best is None or score < best[0] - 1e-5:
                 best = (score, {k: np.array(v) for k, v in corr.items()}, dict(zx))
             if it == iters:
@@ -1179,10 +1182,13 @@ class Retargeter:
                     corr[sd] = corr[sd] + sg * np.array([step[0], -step[2]]) / sw
                     zx[sd] += sg * step[1] / sw
                 moved = True
-            elif self._hands_overlap_in_source(f) and -0.03 < ov < -0.004:
+            elif touch and abs(self.sep_dir[1]) > 0.25:
                 # the signer's hands overlap in the image and the avatar's are close but apart
-                # in depth: bring the back hand forward until they touch (contact, not a gap)
-                zx[back] -= (-ov - 0.002) / sw
+                # in depth: close the gap along the depth axis until they touch (contact, not
+                # a gap). sep_dir points from the right hand to the left hand.
+                d = 0.5 * (-ov - 0.002) * float(np.sign(self.sep_dir[1])) / sw
+                zx["l"] -= d
+                zx["r"] += d
                 moved = True
             if not moved:
                 return
