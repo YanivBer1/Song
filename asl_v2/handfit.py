@@ -103,6 +103,7 @@ class Hand:
         self.palm_local = self.R_rest.T @ n
         curl = np.mean([np.dot(rest[b + 3] - rest[b], n) for b in (5, 9, 13, 17)])
         palmar = n * np.sign(curl)                       # relaxed fingers curl towards the palm
+        self.palmar_local = self.R_rest.T @ palmar
         self.sign = np.ones(15)                          # flexion sign per bone (X axis; thumb 02/03: Z)
         for i, b in enumerate(self.bones):
             L = [np.eye(3)] * 15
@@ -162,7 +163,7 @@ class Hand:
         L[2] = _rz(s[2] * t[5])
         return L
 
-    def solve(self, T, R_init, x_prev, R_prev, ts=1.0):
+    def solve(self, T, R_init, x_prev, R_prev, ts=1.0, arm=None):
         """T: (21,3) target landmarks in Blender axes (any scale, any origin)."""
         data_len = sum(np.linalg.norm(T[b + k + 1] - T[b + k]) for b in (5, 9, 13, 17) for k in range(3))
         k = self.finger_len / (data_len + 1e-9)
@@ -170,13 +171,35 @@ class Hand:
         # a (nearly) flat depth profile means "no depth evidence" for this frame
         wz = WZ * float(np.clip((np.ptp(Tn[:, 1]) - 0.05) / 0.10, 0.0, 1.0))
 
+        pri = _prior()
+
         def res(x):
             R_h = R_init @ _exp(x[:3])
             A = self.fk(R_h, self.locals_from(x))
             An = np.exp(x[25]) * (A - A[KNUCK].mean(0)) / self.hand_len
             d = An[IDX] - Tn[IDX]
             wr = np.exp(x[25]) * (A[0] + self.wrist_off * (R_h @ self.mid_dir_local) - A[KNUCK].mean(0)) / self.hand_len - Tn[0]
-            out = [(W2D[:, None] * d[:, [0, 2]]).ravel(), wz * d[:, 1], WWRIST * wr[[0, 2]], WREG * x[3:25]]
+            out = [(W2D[:, None] * d[:, [0, 2]]).ravel(), wz * d[:, 1], WWRIST * wr[[0, 2]]]
+            if arm is not None:
+                # Wrist / forearm range of motion: the hand must be reachable from the forearm.
+                #   swing  (wrist flexion / deviation): hand axis within ~80 deg of the forearm
+                #   twist  (pronation / supination): palm within ~100 deg of facing the body midline
+                v, medial = arm
+                hax = R_h @ self.mid_dir_local
+                swing = np.arccos(np.clip(hax @ v, -1, 1))
+                pal = R_h @ self.palmar_local
+                pp = pal - v * (pal @ v)
+                npp = np.linalg.norm(pp)
+                twist = np.arccos(np.clip(pp @ medial / (npp + 1e-9), -1, 1)) if npp > 0.2 else 0.0
+                out.append(np.array([W_WRIST * max(0.0, swing - 1.4), W_WRIST * max(0.0, twist - 1.75),
+                                     W_COMFORT * twist, 0.6 * W_COMFORT * swing]))   # prefer a relaxed wrist
+            if pri is None:
+                out.append(WREG * x[3:25])
+            else:
+                # learned handshape prior: stay near the subspace of finger poses signers use
+                dv = x[3:25] - pri["mean"]
+                z = dv @ pri["comps"].T
+                out += [WPRI_OFF * (dv - z @ pri["comps"]), WPRI_IN * z / np.sqrt(pri["lam"])]
             if x_prev is not None:
                 out += [ts * WT_ANG * (x[3:25] - x_prev[3:25]), ts * WT_ROT * _log(R_prev.T @ R_h),
                         0.3 * (x[25:] - x_prev[25:])]
@@ -196,7 +219,74 @@ class Hand:
         return _frame(d, n) @ _frame(np.array([0, 1.0, 0]), self.palm_local).T
 
 
+W_WRIST, W_COMFORT = 0.6, 0.035
+
+
+def solve_arm(S, E_obs, T_obs, a, b):
+    """Two-bone arm from 2D shoulder/elbow/wrist (canonical units) with depth recovered from
+    the bone lengths (same construction as the retargeter). Returns elbow, wrist (3D)."""
+    S = np.array([S[0], S[1], 0.0])
+    dxy1 = np.linalg.norm(E_obs[:2] - S[:2])
+    E0 = np.array([E_obs[0], E_obs[1], -0.5 * np.sqrt(max(a * a - dxy1 * dxy1, 0.0))])
+    dxy2 = np.linalg.norm(T_obs[:2] - E_obs[:2])
+    z_t = E0[2] - np.sqrt(max(b * b - dxy2 * dxy2, 0.0))
+    x, y = T_obs[0], T_obs[1]
+    if abs(x) < 0.62 and -0.25 < y < 1.75:
+        z_t = min(z_t, -0.40)
+    elif abs(x) < 0.55 and y <= -0.25:
+        z_t = min(z_t, -0.50)
+    Tt = np.array([x, y, z_t])
+    u = Tt - S
+    D = np.clip(np.linalg.norm(u), abs(a - b) + 1e-3, a + b - 1e-3)
+    u /= np.linalg.norm(u)
+    Tt = S + u * D
+    cos_a = np.clip((a * a + D * D - b * b) / (2 * a * D), -1, 1)
+    pole = E0 - S
+    vv = pole - u * np.dot(pole, u)
+    if np.linalg.norm(vv) < 1e-6:
+        vv = np.array([0.0, 1.0, 0.0]) - u * u[1]
+    vv /= np.linalg.norm(vv)
+    return S + a * (cos_a * u + np.sqrt(1 - cos_a ** 2) * vv), Tt
+
+
+def arm_frames(seq, side, cal):
+    """Per frame: forearm direction and the direction the palm faces at neutral forearm
+    rotation (towards the body midline), both in Blender axes."""
+    bh = cal["bone_heads_canon"]
+    S = np.array(bh[f"upperarm_{side}"])
+    a = np.linalg.norm(np.array(bh[f"lowerarm_{side}"]) - S)
+    b = np.linalg.norm(np.array(bh[f"hand_{side}"]) - np.array(bh[f"lowerarm_{side}"]))
+    el, off = (13, LH) if side == "l" else (14, RH)
+    out = []
+    for f in seq:
+        E, Tt = solve_arm(S, f[el], f[off], a, b)
+        u = _to_bl(E - np.array([S[0], S[1], 0.0]))
+        v = _to_bl(Tt - E)
+        u /= np.linalg.norm(u) + 1e-9
+        v /= np.linalg.norm(v) + 1e-9
+        n = np.cross(u, v)
+        if np.linalg.norm(n) < 0.15:                      # straight arm: elbow axis undefined
+            n = np.cross(v, np.array([0.0, -1.0, 0.0]))    # use the horizontal axis instead
+            n = n if (n[0] < 0) else -n
+        n /= np.linalg.norm(n) + 1e-9
+        medial = n if side == "l" else -n
+        medial = medial - v * (medial @ v)
+        out.append((v, medial / (np.linalg.norm(medial) + 1e-9)))
+    return out
+
+
 _RIG = None
+_PRI = False
+WPRI_OFF, WPRI_IN = 0.06, 0.004
+
+
+def _prior():
+    """Hand-pose prior trained by asl_v2.train_prior (off by default: an A/B test on 5 phrases showed no gain; enable with ASL_PRIOR=1)."""
+    global _PRI
+    if _PRI is False:
+        path = os.path.join(HERE, "models", "avatar_hand_prior.npz")
+        _PRI = dict(np.load(path)) if os.path.exists(path) and os.environ.get("ASL_PRIOR", "0") == "1" else None
+    return _PRI
 
 
 def _load():
@@ -233,7 +323,8 @@ def one_euro(x, fps=30.0, min_cutoff=1.5, beta=1.0, d_cutoff=1.0):
 
 
 def _fit_side(args):
-    side, targets, mask = args
+    side, targets, mask = args[:3]
+    arms = args[3] if len(args) > 3 else None
     hand = _load()[side]
     T = len(targets)
     # de-jitter the tracked hand shape (hand-length units) block by block before fitting
@@ -267,17 +358,18 @@ def _fit_side(args):
             x_prev = R_prev = None                       # new block after a transition
             continue
         tg = targets[t]
+        arm = arms[t] if arms is not None else None
         cands = []
         mirror = tg * np.array([1.0, -1.0, 1.0])
         if R_prev is not None:
             # The depth SIGN of a tracked hand is unreliable frame to frame (a hand and its
             # depth mirror look the same in the image). Fit both readings from the previous
             # pose; the temporal term then keeps the one that continues the motion.
-            cands.append(hand.solve(tg, R_prev, x_prev, R_prev, tscale[t]))
-            cands.append(hand.solve(mirror, R_prev, x_prev, R_prev, tscale[t]))
+            cands.append(hand.solve(tg, R_prev, x_prev, R_prev, tscale[t], arm))
+            cands.append(hand.solve(mirror, R_prev, x_prev, R_prev, tscale[t], arm))
         if R_prev is None or (min(c[3] for c in cands) > 0.07 and tscale[t] < 2):   # (re)initialise from the data
             for init in (hand.init_rot(tg), hand.init_rot(mirror)):
-                cands.append(hand.solve(tg, init, x_prev, R_prev, tscale[t]))
+                cands.append(hand.solve(tg, init, x_prev, R_prev, tscale[t], arm))
         ci = int(np.argmin([c[2] for c in cands]))
         x, Rh, _, r = cands[ci]
         used_mirror[t] = (R_prev is not None and ci == 1) or (len(cands) in (2, 4) and ci == len(cands) - 1
@@ -310,7 +402,8 @@ def _fit_side(args):
         _smooth_blocks(mask, lambda a, b: lowpass(a, b, SIG_TRAJ))
         for t in np.flatnonzero(mask):
             tg = targets[t] * (np.array([1.0, -1.0, 1.0]) if used_mirror[t] else 1.0)
-            x, Rh, _, r = hand.solve(tg, R[t], X[t], R[t], PULL * (1 - 0.85 * act[t]) * tscale[t])
+            x, Rh, _, r = hand.solve(tg, R[t], X[t], R[t], PULL * (1 - 0.85 * act[t]) * tscale[t],
+                                     arms[t] if arms is not None else None)
             X[t], R[t], rms[t] = np.r_[0, 0, 0, x[3:]], Rh, r
     Xp, Rp = X.copy(), R.copy()
     _smooth_blocks(mask, lambda a, b: lowpass(a, b, SIG_FINAL))
@@ -341,7 +434,9 @@ def fit_sequence(seq, segments=None, workers=2, sigma=0.5):
         for kind, a, b, _ in segments:
             if kind == "transition":
                 mask[a:b] = False
-    jobs = [(s, _to_bl(seq[:, off:off + 21] - seq[:, off:off + 1]), mask) for s, off in (("l", LH), ("r", RH))]
+    cal = json.load(open(os.path.join(HERE, "models", "avatar_calib.json")))
+    jobs = [(s, _to_bl(seq[:, off:off + 21] - seq[:, off:off + 1]), mask, arm_frames(seq, s, cal))
+            for s, off in (("l", LH), ("r", RH))]
     if workers > 1:
         with ProcessPoolExecutor(2) as ex:
             results = list(ex.map(_fit_side, jobs))
