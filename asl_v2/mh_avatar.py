@@ -707,11 +707,20 @@ class Retargeter:
             H[s] = np.array([np.array(self.rig.matrix_world @ (self.rig.pose.bones[f"{b}_{s}"].head if e == "head"
                                                                 else self.rig.pose.bones[f"{b}_{s}"].tail))
                              for b, e in (m[i] for i in range(21))])
-        worst = 0.0
+        worst, pair = -1.0, None
         for a, b in segs:
             for c, d in segs:
                 dd = _seg_dist(H["l"][a], H["l"][b], H["r"][c], H["r"][d])
-                worst = max(worst, 2 * r_finger - dd)
+                if 2 * r_finger - dd > worst:
+                    worst, pair = 2 * r_finger - dd, (a, b, c, d)
+        # separation direction (right hand -> left hand) of the deepest pair
+        a, b, c, d = pair
+        n = (H["l"][a] + H["l"][b]) / 2 - (H["r"][c] + H["r"][d]) / 2
+        if worst > r_finger or np.linalg.norm(n) < 1e-4:
+            # deeply interpenetrating: segment midpoints are meaningless; move the hands apart
+            # along the line between their palm centres
+            n = H["l"][[0, 5, 9, 13, 17]].mean(0) - H["r"][[0, 5, 9, 13, 17]].mean(0)
+        self.sep_dir = n / (np.linalg.norm(n) + 1e-9)
         return worst
 
     # ---------------- calibration (avatar measured with MediaPipe, see calibrate.py) -------------
@@ -916,15 +925,16 @@ class Retargeter:
             for i, s in enumerate("lr"):
                 corr[t, i], zx[t, i] = self.last_corr[s], self.last_zx[s]
         for a, b in _blocks(solve):
-            zmin = np.array([zx[max(a, t - 2):min(b, t + 3)].min(0) for t in range(a, b)])
-            zx[a:b] = _gauss(zmin, 2.0)
-            corr[a:b] = _gauss(corr[a:b], 2.0)
+            zx[a:b] = _gauss(zx[a:b], 1.5)
+            corr[a:b] = _gauss(corr[a:b], 1.5)
         Q = np.zeros((T, len(names), 4))
         Q[:, :, 0] = 1
         last = [None] * T
         for t in np.flatnonzero(solve):
             self.frame_t = t
-            self._pose_once(seq[t], {"l": corr[t, 0], "r": corr[t, 1]}, {"l": zx[t, 0], "r": zx[t, 1]})
+            c_t, z_t = {"l": corr[t, 0].copy(), "r": corr[t, 1].copy()}, {"l": zx[t, 0], "r": zx[t, 1]}
+            self._pose_once(seq[t], c_t, z_t)
+            self._resolve(seq[t], c_t, z_t, iters=6)       # smoothing must not re-introduce penetration
             Q[t] = [tuple(pb.rotation_quaternion) for pb in rig.pose.bones]
             last[t] = {k: dict(v) for k, v in self.last.items()}
         # temporal coherence of rotations (sign-continuous quaternions, light low-pass)
@@ -1036,45 +1046,55 @@ class Retargeter:
                 h4 = -4 * t ** 3 + 7 * t ** 4 - 3 * t ** 5
                 h5 = 10 * t ** 3 - 15 * t ** 4 + 6 * t ** 5
                 arm_points(a + k - 1)                      # poses clavicle/spine for this frame
-                for s in "lr":
-                    (Ea, Wa), (Eb, Wb) = Pa[s], Pb[s]
-                    va, vb = Wa - Pa0[s][1], Pb1[s][1] - Wb
-                    dist = np.linalg.norm(Wb - Wa)
-                    cap = (1.2 * dist + 0.03) / D
-                    for v in (va, vb):
-                        m = np.linalg.norm(v)
-                        if m > cap:
-                            v *= cap / m
-                    W = h0 * Wa + h1 * va * D + h4 * vb * D + h5 * Wb
-                    W[1] -= min(0.05, 0.2 * dist) * np.sin(np.pi * t)       # slight forward arc
-                    E_hint = (1 - h5) * Ea + h5 * Eb
-                    S = np.array(rig.pose.bones[f"upperarm_{s}"].head)
-                    la, lb = L[s]
-                    u = W - S
-                    dd = float(np.clip(np.linalg.norm(u), abs(la - lb) + 1e-3, la + lb - 1e-3))
-                    u /= np.linalg.norm(u) + 1e-12
-                    W = S + u * dd
-                    cos_a = np.clip((la * la + dd * dd - lb * lb) / (2 * la * dd), -1, 1)
-                    pole = E_hint - S
-                    pv = pole - u * (pole @ u)
-                    if np.linalg.norm(pv) < 1e-6:
-                        pv = np.array([0, 0, -1.0]) - u * (-u[2])
-                    pv /= np.linalg.norm(pv)
-                    E = S + la * (cos_a * u + np.sqrt(1 - cos_a ** 2) * pv)
-                    du, dv = (E - S) / la, (W - E) / np.linalg.norm(W - E)
-                    cl = rig.pose.bones[f"clavicle_{s}"]
-                    chain_u = np.array(cl.matrix)[:3, :3] @ self.rest[cl.name][:3, :3].T @ self.rest[f"upperarm_{s}"][:3, :3]
-                    R_min = np.array(Vector(chain_u[:, 1]).rotation_difference(Vector(du)).to_matrix()) @ chain_u
-                    nrm = np.cross(du, dv)
-                    sin_f = np.linalg.norm(nrm)
-                    wgt = float(np.clip(sin_f / 0.3, 0.0, 1.0))
-                    n_e = wgt * nrm / (sin_f + 1e-9) + (1 - wgt) * (R_min @ self.hinge_local[s])
-                    R_u = _frame(du, n_e) @ _frame(np.array([0, 1.0, 0]), self.hinge_local[s]).T
-                    chain_l = R_u @ self.rest[f"upperarm_{s}"][:3, :3].T @ self.rest[f"lowerarm_{s}"][:3, :3]
-                    R_l0 = np.array(Vector(chain_l[:, 1]).rotation_difference(Vector(dv)).to_matrix()) @ chain_l
-                    sw0 = Matrix((chain_l.T @ R_l0).tolist()).to_quaternion().to_swing_twist("Y")[0]
-                    Q[a + k - 1, ju[s]] = tuple(Matrix((chain_u.T @ R_u).tolist()).to_quaternion())
-                    Q[a + k - 1, jl[s]] = tuple(sw0 @ Quaternion((0, 1, 0), tw[s][0] + h5 * tw[s][1]))
+                off = {"l": np.zeros(3), "r": np.zeros(3)}
+                for attempt in range(5):
+                  for s in "lr":
+                      (Ea, Wa), (Eb, Wb) = Pa[s], Pb[s]
+                      va, vb = Wa - Pa0[s][1], Pb1[s][1] - Wb
+                      dist = np.linalg.norm(Wb - Wa)
+                      cap = (1.2 * dist + 0.03) / D
+                      for v in (va, vb):
+                          m = np.linalg.norm(v)
+                          if m > cap:
+                              v *= cap / m
+                      W = h0 * Wa + h1 * va * D + h4 * vb * D + h5 * Wb
+                      W[1] -= min(0.05, 0.2 * dist) * np.sin(np.pi * t)       # slight forward arc
+                      W = W + off[s]
+                      E_hint = (1 - h5) * Ea + h5 * Eb
+                      S = np.array(rig.pose.bones[f"upperarm_{s}"].head)
+                      la, lb = L[s]
+                      u = W - S
+                      dd = float(np.clip(np.linalg.norm(u), abs(la - lb) + 1e-3, la + lb - 1e-3))
+                      u /= np.linalg.norm(u) + 1e-12
+                      W = S + u * dd
+                      cos_a = np.clip((la * la + dd * dd - lb * lb) / (2 * la * dd), -1, 1)
+                      pole = E_hint - S
+                      pv = pole - u * (pole @ u)
+                      if np.linalg.norm(pv) < 1e-6:
+                          pv = np.array([0, 0, -1.0]) - u * (-u[2])
+                      pv /= np.linalg.norm(pv)
+                      E = S + la * (cos_a * u + np.sqrt(1 - cos_a ** 2) * pv)
+                      du, dv = (E - S) / la, (W - E) / np.linalg.norm(W - E)
+                      cl = rig.pose.bones[f"clavicle_{s}"]
+                      chain_u = np.array(cl.matrix)[:3, :3] @ self.rest[cl.name][:3, :3].T @ self.rest[f"upperarm_{s}"][:3, :3]
+                      R_min = np.array(Vector(chain_u[:, 1]).rotation_difference(Vector(du)).to_matrix()) @ chain_u
+                      nrm = np.cross(du, dv)
+                      sin_f = np.linalg.norm(nrm)
+                      wgt = float(np.clip(sin_f / 0.3, 0.0, 1.0))
+                      n_e = wgt * nrm / (sin_f + 1e-9) + (1 - wgt) * (R_min @ self.hinge_local[s])
+                      R_u = _frame(du, n_e) @ _frame(np.array([0, 1.0, 0]), self.hinge_local[s]).T
+                      chain_l = R_u @ self.rest[f"upperarm_{s}"][:3, :3].T @ self.rest[f"lowerarm_{s}"][:3, :3]
+                      R_l0 = np.array(Vector(chain_l[:, 1]).rotation_difference(Vector(dv)).to_matrix()) @ chain_l
+                      sw0 = Matrix((chain_l.T @ R_l0).tolist()).to_quaternion().to_swing_twist("Y")[0]
+                      Q[a + k - 1, ju[s]] = tuple(Matrix((chain_u.T @ R_u).tolist()).to_quaternion())
+                      Q[a + k - 1, jl[s]] = tuple(sw0 @ Quaternion((0, 1, 0), tw[s][0] + h5 * tw[s][1]))
+                  # hands must not pass through each other on the way: move the paths apart
+                  arm_points(a + k - 1)
+                  ov = self._hand_hand_overlap()
+                  if ov <= 0:
+                        break
+                  off["l"] = off["l"] + (ov / 2 + 0.003) * self.sep_dir
+                  off["r"] = off["r"] - (ov / 2 + 0.003) * self.sep_dir
         # facial expression
         expr = None
         if objs is not None:
@@ -1120,6 +1140,48 @@ class Retargeter:
                         kb[k].value = float(v)
         bpy.context.view_layer.update()
 
+    def _resolve(self, f, corr, zx, iters=10):
+        """Contact without penetration: push fingers/forearms out of the body along the camera
+        depth axis, and separate interpenetrating hands along the line between their closest
+        finger segments (a fist resting on a palm moves up off the palm). Keeps the best
+        configuration seen, so it can never end worse than it started."""
+        sw = self.cal["mp_shoulder_width_m"]
+        best = None
+        for it in range(iters + 1):
+            bpy.context.view_layer.update()
+            pen = {s: self._body_penetration(s) for s in "lr"}
+            ov = self._hand_hand_overlap()
+            score = max(ov, 0.0) + max(pen.values())
+            if best is None or score < best[0] - 1e-5:
+                best = (score, {k: np.array(v) for k, v in corr.items()}, dict(zx))
+            if it == iters:
+                break
+            moved = False
+            for s in "lr":
+                if pen[s] > 0:
+                    zx[s] -= (pen[s] + 0.004) / sw
+                    moved = True
+            front = "l" if f[LH, 2] < f[RH, 2] - 1e-6 else "r"
+            back = "r" if front == "l" else "l"
+            if ov > 0:
+                step = (ov / 2 + 0.002) * self.sep_dir
+                for sd, sg in (("l", 1.0), ("r", -1.0)):
+                    corr[sd] = corr[sd] + sg * np.array([step[0], -step[2]]) / sw
+                    zx[sd] += sg * step[1] / sw
+                moved = True
+            elif self._hands_overlap_in_source(f) and -0.03 < ov < -0.004:
+                # the signer's hands overlap in the image and the avatar's are close but apart
+                # in depth: bring the back hand forward until they touch (contact, not a gap)
+                zx[back] -= (-ov - 0.002) / sw
+                moved = True
+            if not moved:
+                return
+            self._pose_once(f, corr, zx)
+        if best[0] < score - 1e-5:                     # ended worse than the best seen: restore it
+            corr.update(best[1])
+            zx.update(best[2])
+            self._pose_once(f, corr, zx)
+
     def pose(self, f, iters=2):
         """Retarget one frame. With calibration, a closed-loop end-effector correction
         moves each wrist target until the avatar's knuckles+fingertips land where the
@@ -1149,31 +1211,7 @@ class Retargeter:
             for s, off in (("l", LH), ("r", RH)):
                 tgt = np.mean([self.warp(f[off + i], f) for i in idx], 0)
                 corr[s] = corr[s] + np.clip(tgt - self._effector_screen(s), -0.15, 0.15)
-        # Contact without penetration: push hands out of the body / apart from each other
-        # along the camera depth axis (the axis a monocular source can't pin down).
-        sw = self.cal["mp_shoulder_width_m"]
-        for _ in range(4):
-            bpy.context.view_layer.update()
-            moved = False
-            for s in "lr":
-                pen = self._body_penetration(s)
-                if pen > 0:
-                    zx[s] -= (pen + 0.004) / sw
-                    moved = True
-            ov = self._hand_hand_overlap()
-            front = "l" if f[LH, 2] < f[RH, 2] - 1e-6 else "r"
-            back = "r" if front == "l" else "l"
-            if ov > 0:
-                zx[front] -= (ov + 0.003) / sw
-                moved = True
-            elif self._hands_overlap_in_source(f) and -0.03 < ov < -0.004:
-                # the signer's hands overlap in the image and the avatar's are close but apart
-                # in depth: bring the back hand forward until they touch (contact, not a gap)
-                zx[back] -= (-ov - 0.002) / sw
-                moved = True
-            if not moved:
-                break
-            self._pose_once(f, corr, zx)
+        self._resolve(f, corr, zx)
         self.last_corr, self.last_zx = corr, zx
 
     def _pose_once(self, f, corr, zx=None):

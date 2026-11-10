@@ -229,6 +229,8 @@ def evaluate(seq, valid=None, path=None):
     med = np.median(dv) + 1e-6
     spikes = dv > 4 * med + 0.004
     print("spike frames:", (np.flatnonzero(spikes) + 1).tolist(), file=sys.stderr)
+    print("hand-penetration frames:", [t for t, ok_ in enumerate(rec["hands"]) if not ok_], file=sys.stderr)
+    print("transition frames:", [(int(a), int(b)) for a, b in mh_avatar._blocks(~bk["solve"])], file=sys.stderr)
     jerk = np.linalg.norm(np.diff(J, 3, axis=0), axis=2).mean()
     pct = lambda x: round(100.0 * float(np.mean(x)), 1) if len(x) else None
     return {

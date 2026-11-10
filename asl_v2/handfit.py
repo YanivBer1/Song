@@ -159,7 +159,7 @@ class Hand:
         L[2] = _rz(s[2] * t[5])
         return L
 
-    def solve(self, T, R_init, x_prev, R_prev):
+    def solve(self, T, R_init, x_prev, R_prev, ts=1.0):
         """T: (21,3) target landmarks in Blender axes (any scale, any origin)."""
         data_len = sum(np.linalg.norm(T[b + k + 1] - T[b + k]) for b in (5, 9, 13, 17) for k in range(3))
         k = self.finger_len / (data_len + 1e-9)
@@ -173,7 +173,8 @@ class Hand:
             wr = np.exp(x[25]) * (A[0] + self.wrist_off * (R_h @ self.mid_dir_local) - A[KNUCK].mean(0)) / self.hand_len - Tn[0]
             out = [(W2D[:, None] * d[:, [0, 2]]).ravel(), WZ * d[:, 1], WWRIST * wr[[0, 2]], WREG * x[3:25]]
             if x_prev is not None:
-                out += [WT_ANG * (x[3:25] - x_prev[3:25]), WT_ROT * _log(R_prev.T @ R_h), 0.3 * (x[25:] - x_prev[25:])]
+                out += [ts * WT_ANG * (x[3:25] - x_prev[3:25]), ts * WT_ROT * _log(R_prev.T @ R_h),
+                        0.3 * (x[25:] - x_prev[25:])]
             return np.concatenate(out)
 
         x0 = np.zeros(26) if x_prev is None else np.r_[0, 0, 0, x_prev[3:]]
@@ -213,6 +214,17 @@ def _fit_side(args):
     X = np.full((T, 26), np.nan)
     R = np.full((T, 3, 3), np.nan)
     rms = np.full(T, np.nan)
+    # Reliability from temporal stability: where the tracked hand shape keeps jumping from
+    # frame to frame for a sustained stretch (hands pointing at the camera, heavy occlusion)
+    # the landmarks are noise; the pose is then held close to the previous frame (temporal
+    # weight up to 12x). Real fast signing (a letter change) is unstable for 2-3 frames only,
+    # so the 60th percentile over a 9-frame window ignores it.
+    chain = [0, 9, 10, 11, 12]
+    l3 = np.median([sum(np.linalg.norm(tg[b] - tg[a]) for a, b in zip(chain[:-1], chain[1:])) for tg in targets])
+    step = np.zeros(T)
+    step[1:] = np.linalg.norm((targets[1:] - targets[:-1])[:, :, [0, 2]], axis=2).max(1) / (l3 + 1e-9)
+    inst = np.array([np.percentile(step[max(0, t - 4):t + 5], 60) for t in range(T)])
+    tscale = 1.0 + 11.0 * np.clip((inst - 0.10) / 0.10, 0.0, 1.0)
     x_prev = R_prev = None
     for t in range(T):
         if not mask[t]:
@@ -225,11 +237,11 @@ def _fit_side(args):
             # The depth SIGN of a tracked hand is unreliable frame to frame (a hand and its
             # depth mirror look the same in the image). Fit both readings from the previous
             # pose; the temporal term then keeps the one that continues the motion.
-            cands.append(hand.solve(tg, R_prev, x_prev, R_prev))
-            cands.append(hand.solve(mirror, R_prev, x_prev, R_prev))
-        if R_prev is None or min(c[3] for c in cands) > 0.07:   # (re)initialise from the data
+            cands.append(hand.solve(tg, R_prev, x_prev, R_prev, tscale[t]))
+            cands.append(hand.solve(mirror, R_prev, x_prev, R_prev, tscale[t]))
+        if R_prev is None or (min(c[3] for c in cands) > 0.07 and tscale[t] < 2):   # (re)initialise from the data
             for init in (hand.init_rot(tg), hand.init_rot(mirror)):
-                cands.append(hand.solve(tg, init, x_prev, R_prev))
+                cands.append(hand.solve(tg, init, x_prev, R_prev, tscale[t]))
         x, Rh, _, r = min(cands, key=lambda c: c[2])
         x = np.r_[0, 0, 0, x[3:]]
         X[t], R[t], rms[t] = x, Rh, r
