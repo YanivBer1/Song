@@ -43,6 +43,18 @@ Also in v6:
   character's bounding box per frame, with a cheaper denoiser prefilter: about 2.9 s per
   1280x720 frame on 4 idle CPU cores against 11.5 s before, at the same look (38.7 dB vs
   39.8 dB PSNR on hand and face crops against a 128-sample reference).
+- **Contact-aware placement:** near the face the hand is positioned by the fingertip that
+  touches the face in the source, not by the hand's centroid (finger proportions differ
+  between signer and avatar). Fingertip-to-face error on DEAF, HOME, THINK, MOTHER: 0.8-1.5 cm
+  → 0.3-0.4 cm. Touching hands keep the offset between the touching points: NAME 2.8 → 2.0 cm,
+  MORE 3.6 → 2.3 cm (the rest is the gap needed so fingers do not pass through each other).
+- **Tracking filters:** a hand read twice (as both sides) and detections that teleport for a
+  few frames are removed (`track_rtm.drop_ghosts`, `drop_jumps`).
+- **All word orders** (`audit_pairs.py`, 9,801 ordered pairs): 9,800 clean junctions
+  (99.99%); no freezes, velocity jumps or path loops; one brief handshape spike
+  (THANK-YOU → NICE). Median transition 633 ms.
+- **Visual review of every sign:** [`docs/QA_V6.md`](QA_V6.md). 26 signs match the source,
+  48 have minor deviations, 25 are wrong, mostly from the depth problem above.
 - **A test that did not help:** tuning the 2D-only fit's priors (wrist comfort, depth
   weight, regularisation) against the 3D readings. On the five signs with 3D data the
   2D-only fit stays more than 45° off in hand orientation on 28% of frames whatever the
