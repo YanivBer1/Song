@@ -32,6 +32,9 @@ W2D = np.ones(len(IDX))
 W2D[np.isin(IDX, [4, 8, 12, 16, 20])] = 1.3
 WZ, WT_ANG, WT_ROT, WREG, WWRIST = 0.30, 0.03, 0.06, 0.004, 0.7
 
+EURO_FC, EURO_BETA = 1.5, 1.0                              # input de-jitter (One-Euro)
+PASSES, SIG_TRAJ, PULL, SIG_FINAL = 1, 2.0, 10.0, 0.6     # trajectory smoother (see _fit_side)
+
 # bounds (rad), relative to the avatar's relaxed rest pose
 B_FLEX1, B_ABD, B_FLEX2, B_FLEX3 = (-0.35, 1.5), (-0.4, 0.4), (-0.05, 1.9), (-0.05, 1.45)
 B_TH1, B_TH2, B_THX, B_TH3 = (-0.7, 0.7), (-0.3, 1.15), (-0.3, 0.3), (-0.35, 1.4)
@@ -209,10 +212,40 @@ def _to_bl(p):
     return np.stack([p[..., 0], p[..., 2], -p[..., 1]], -1)
 
 
+def one_euro(x, fps=30.0, min_cutoff=1.5, beta=1.0, d_cutoff=1.0):
+    """One-Euro filter (Casiez et al. 2012) run forwards and backwards and averaged (zero
+    lag): strong smoothing while the signal is nearly still (tracker jitter), light smoothing
+    when it really moves (a handshape change). x: (T, D)."""
+    def run(x):
+        def alpha(fc):
+            tau = 1.0 / (2 * np.pi * fc)
+            return 1.0 / (1.0 + tau * fps)
+        y = np.zeros_like(x)
+        y[0] = x[0]
+        dx = np.zeros(x.shape[1])
+        for t in range(1, len(x)):
+            d = (x[t] - y[t - 1]) * fps
+            dx = dx + alpha(d_cutoff) * (d - dx)
+            fc = min_cutoff + beta * np.linalg.norm(dx)
+            y[t] = y[t - 1] + alpha(fc) * (x[t] - y[t - 1])
+        return y
+    return 0.5 * (run(x) + run(x[::-1])[::-1])
+
+
 def _fit_side(args):
     side, targets, mask = args
     hand = _load()[side]
     T = len(targets)
+    # de-jitter the tracked hand shape (hand-length units) block by block before fitting
+    ch = [0, 9, 10, 11, 12]
+    l0 = np.median([sum(np.linalg.norm(tg[b] - tg[a]) for a, b in zip(ch[:-1], ch[1:])) for tg in targets]) + 1e-9
+    targets = targets.copy()
+
+    def dejitter(a, b):
+        if b - a >= 4:
+            targets[a:b] = one_euro((targets[a:b] / l0).reshape(b - a, -1), min_cutoff=EURO_FC, beta=EURO_BETA
+                                    ).reshape(b - a, 21, 3) * l0
+    _smooth_blocks(mask, dejitter)
     X = np.full((T, 26), np.nan)
     R = np.full((T, 3, 3), np.nan)
     rms = np.full(T, np.nan)
@@ -227,6 +260,7 @@ def _fit_side(args):
     step[1:] = np.linalg.norm((targets[1:] - targets[:-1])[:, :, [0, 2]], axis=2).max(1) / (l3 + 1e-9)
     inst = np.array([np.percentile(step[max(0, t - 4):t + 5], 60) for t in range(T)])
     tscale = 1.0 + 11.0 * np.clip((inst - 0.16) / 0.10, 0.0, 1.0)
+    used_mirror = np.zeros(T, bool)
     x_prev = R_prev = None
     for t in range(T):
         if not mask[t]:
@@ -244,10 +278,45 @@ def _fit_side(args):
         if R_prev is None or (min(c[3] for c in cands) > 0.07 and tscale[t] < 2):   # (re)initialise from the data
             for init in (hand.init_rot(tg), hand.init_rot(mirror)):
                 cands.append(hand.solve(tg, init, x_prev, R_prev, tscale[t]))
-        x, Rh, _, r = min(cands, key=lambda c: c[2])
+        ci = int(np.argmin([c[2] for c in cands]))
+        x, Rh, _, r = cands[ci]
+        used_mirror[t] = (R_prev is not None and ci == 1) or (len(cands) in (2, 4) and ci == len(cands) - 1
+                                                              and R_prev is None)
         x = np.r_[0, 0, 0, x[3:]]
         X[t], R[t], rms[t] = x, Rh, r
         x_prev, R_prev = x, Rh
+
+    # ---- pass 2: smoother. Low-pass the whole trajectory (zero phase), then re-solve every
+    # frame against the image with a pull towards that smooth trajectory (past AND future),
+    # so frame-to-frame solver noise is removed while real handshape changes, which the
+    # image insists on, are kept.
+    def lowpass(a, b, sig):
+        if b - a < 3:
+            return
+        X[a:b, 3:] = gaussian_filter1d(X[a:b, 3:], sig, axis=0, mode="nearest")
+        Rs = R[a:b].copy()
+        half = int(3 * sig + 0.5)
+        for t in range(a, b):
+            lo, hi = max(a, t - half), min(b, t + half + 1)
+            w = np.exp(-0.5 * ((np.arange(lo, hi) - t) / sig) ** 2)
+            v = sum(wi * _log(Rs[t - a].T @ Rs[j - a]) for wi, j in zip(w, range(lo, hi))) / w.sum()
+            R[t] = Rs[t - a] @ _exp(v)
+
+    # How fast the handshape really changes in the image (low-passed 2D shape speed): the pull
+    # towards the smooth trajectory is strong while a handshape is held and relaxed during a
+    # real handshape change (fingerspelling), so letters stay crisp and holds stay still.
+    act = np.zeros(T)      # (speed-adaptive relaxation disabled: 2D speed cannot tell jitter from change)
+    for _ in range(PASSES):
+        _smooth_blocks(mask, lambda a, b: lowpass(a, b, SIG_TRAJ))
+        for t in np.flatnonzero(mask):
+            tg = targets[t] * (np.array([1.0, -1.0, 1.0]) if used_mirror[t] else 1.0)
+            x, Rh, _, r = hand.solve(tg, R[t], X[t], R[t], PULL * (1 - 0.85 * act[t]) * tscale[t])
+            X[t], R[t], rms[t] = np.r_[0, 0, 0, x[3:]], Rh, r
+    Xp, Rp = X.copy(), R.copy()
+    _smooth_blocks(mask, lambda a, b: lowpass(a, b, SIG_FINAL))
+    for t in np.flatnonzero(mask):                      # keep fast real changes un-blurred
+        X[t] = (1 - act[t]) * X[t] + act[t] * Xp[t]
+        R[t] = Rp[t] @ _exp((1 - act[t]) * _log(Rp[t].T @ R[t]))
     return side, X, R, rms
 
 
@@ -298,7 +367,6 @@ def fit_sequence(seq, segments=None, workers=2, sigma=0.5):
                     v = sum(wi * _log(Rs[t - a].T @ Rs[j - a]) for wi, j in zip(w, range(lo, hi))) / w.sum()
                     R[t] = Rs[t - a] @ _exp(v)
 
-        _smooth_blocks(mask, smooth)
         for t in range(T):
             if mask[t]:
                 Rout[t, i] = R[t]
