@@ -455,11 +455,13 @@ export const CharacterYaniv: React.FC<YanivProps> = ({
             <g transform={`translate(0 ${slumpY})`}>
               <path d={`M 150 1500 Q 200 ${handY + 160} ${handX} ${handY + 40}`} stroke={INK} strokeWidth={104} fill="none" strokeLinecap="round" />
               <path d={`M 150 1500 Q 200 ${handY + 160} ${handX} ${handY + 40}`} stroke={C.skin} strokeWidth={88} fill="none" strokeLinecap="round" />
-              <g transform={`translate(${handX} ${handY}) rotate(-28)`}>
-                <rect x={-20} y={-150} width={44} height={120} rx={22} fill={C.skin} stroke={INK} strokeWidth={STROKE} />
-                <ellipse cx={0} cy={0} rx={70} ry={62} fill={C.skin} stroke={INK} strokeWidth={STROKE} />
-                <path d="M -40 -20 Q -10 -6 30 -24 M -44 12 Q -10 26 34 8" stroke={C.skinShade} strokeWidth={6} fill="none" />
-                <ellipse cx={2} cy={-136} rx={12} ry={9} fill="#F7D6C2" />
+              <g transform={`translate(${handX} ${handY}) rotate(34)`}>
+                {/* index finger aimed at the viewer, fist + tucked thumb */}
+                <rect x={-22} y={-178} width={46} height={150} rx={23} fill={C.skin} stroke={INK} strokeWidth={STROKE} />
+                <ellipse cx={0} cy={0} rx={74} ry={64} fill={C.skin} stroke={INK} strokeWidth={STROKE} />
+                <path d="M -46 -28 Q -10 -12 36 -30 M -50 6 Q -10 22 40 4 M -46 36 Q -10 50 34 36" stroke={C.skinShade} strokeWidth={6} fill="none" />
+                <ellipse cx={-48} cy={-18} rx={26} ry={40} fill={C.skin} stroke={INK} strokeWidth={STROKE} transform="rotate(30 -48 -18)" />
+                <ellipse cx={2} cy={-162} rx={13} ry={10} fill="#F7D6C2" />
               </g>
               {point > 0.8 ? (
                 <g stroke={C.yellow} strokeWidth={9} strokeLinecap="round" opacity={(point - 0.8) * 5}>

@@ -48,8 +48,9 @@ export const SplitBeforeAfter: React.FC<{
 }> = ({before, after, beforeSide = 'left', beforeLabel = 'לפני', afterLabel = 'אחרי'}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const inL = spring({frame: frame + 1, fps, config: BOUNCE});
-  const inR = spring({frame: frame - 3, fps, config: BOUNCE});
+  // hard cut: both halves are already ~90% in on the first frame, then bounce home
+  const inL = spring({frame: frame + 7, fps, config: BOUNCE});
+  const inR = spring({frame: frame + 5, fps, config: BOUNCE});
   const k = boilKey(frame);
   const divider: [number, number][] = Array.from({length: 12}, (_, i) => [540 + (random(`dv${i}`) - 0.5) * 10, i * 175]);
 
