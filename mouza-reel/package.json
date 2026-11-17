@@ -1,0 +1,29 @@
+{
+  "name": "mouza-reel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mouza – 100% animated viral Instagram Reel (Remotion)",
+  "scripts": {
+    "dev": "remotion studio",
+    "sfx": "node scripts/make-audio.mjs",
+    "render": "remotion render Mouza11Attempts out/mouza.mp4 --codec h264 --image-format jpeg --scale 1",
+    "render:hooks": "bash scripts/render-all.sh",
+    "cover": "remotion still MouzaCover out/cover.png --frame=24",
+    "loudnorm": "bash scripts/loudnorm.sh",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.544",
+    "@remotion/fonts": "^4.0.544",
+    "@remotion/google-fonts": "4.0.544",
+    "@remotion/media-utils": "4.0.544",
+    "@remotion/studio": "^4.0.544",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.544"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.8",
+    "typescript": "5.8.3"
+  }
+}
